@@ -7,7 +7,7 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 Батарею приложение не тратит: в фоне оно ничего не делает, его будит только пришедший push (общее соединение
 сервисов Google). Постоянного соединения нет.
 
-* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.0**).
+* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.2**).
 * Что доработать в CRM — задание хранится вместе с CRM (закрытый репозиторий).
 * Firebase — [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
@@ -21,7 +21,7 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 | Приём push: расшифровка RFC 8291 → уведомление / снятие | `push/PushService.kt`, `push/WebPushCrypto.kt`, `push/Notifier.kt` |
 | «Прочитано» | `push/ActionReceiver.kt` |
 | Первый запуск и настройки (разрешения, батарея, автозапуск, проверка) | `ui/Screens.kt`, `ui/Oem.kt` |
-| Версия и обновление APK | `update/Updater.kt` |
+| Версия и обновление APK (релизы GitHub) | `update/Updater.kt` |
 
 Стек: Kotlin 2.4, Jetpack Compose (BOM 2026.09), AGP 9.5, Gradle 9.9, JDK 25 (из Android Studio), `compileSdk`/
 `targetSdk` 37, `minSdk` 26 (Android 8), Firebase BoM 35, OkHttp 5, kotlinx.serialization. Без аналитики.
@@ -34,7 +34,8 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 make test      # юнит-тесты
 make debug     # app/build/outputs/apk/debug/app-debug.apk (пакет ru.ashcrm.app.debug, ставится рядом с боевым)
 make install   # поставить debug на подключённый телефон/эмулятор
-make dist      # тесты + lint + подписанный APK → dist/ashcrm.apk и dist/android.json для CRM
+make dist      # тесты + lint + подписанный APK → dist/ashcrm.apk и dist/android.json
+make publish   # то же + релиз на GitHub (см. «Выпуск версии»)
 ```
 
 ## Ключ подписи — сохранить!
@@ -47,11 +48,16 @@ make dist      # тесты + lint + подписанный APK → dist/ashcrm.
 
 ## Выпуск версии
 
-1. В `app/build.gradle.kts` поднять `versionCode` (+1) и `versionName`. Менялся обмен с CRM — сначала
-   `docs/ANDROID_CONTRACT.md`, затем `CONTRACT` (мажорная версия — обновление станет обязательным для всех).
-2. `make dist`.
-3. `dist/ashcrm.apk` и `dist/android.json` — в каталог `ASH_ANDROID_DIR` сервера CRM. Приложения предложат
-   обновление при следующем запуске (одно предложение на версию).
+Версии раздаются релизами этого репозитория; приложения проверяют `android.json` последнего релиза при запуске и
+предлагают обновиться (`docs/ANDROID_CONTRACT.md` §2). Сборка и подпись — только на этом компьютере.
+
+1. `app/build.gradle.kts`: поднять `versionCode` (+1) и `versionName`. Менялся обмен с CRM — сначала
+   `docs/ANDROID_CONTRACT.md`, затем `CONTRACT`.
+2. `release/notes.txt` — «Что нового», до 5 коротких строк (их видит сотрудник в предложении обновиться).
+3. `release/min_version_code` — поднять до нового `versionCode`, если старые версии **обязаны** обновиться
+   (несовместимое изменение); иначе не трогать.
+4. Коммит и `git push`, затем `make publish`: тесты, lint, подписанная сборка, релиз `v<versionName>` с
+   `ashcrm.apk` и `android.json`. Телефоны предложат обновление при следующем запуске.
 
 ## Проверка на эмуляторе
 

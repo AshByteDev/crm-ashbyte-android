@@ -20,6 +20,7 @@ import ru.ashcrm.app.graph
 import ru.ashcrm.app.net.HttpError
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.push.Register
+import ru.ashcrm.app.update.CrmState
 import ru.ashcrm.app.update.UpdateDecision
 import java.io.IOException
 
@@ -29,7 +30,7 @@ sealed interface Screen {
     data object Portal : Screen
     data object Web : Screen
     data class Settings(val firstRun: Boolean) : Screen
-    data class MustUpdate(val info: ru.ashcrm.app.net.AppInfo) : Screen
+    data class MustUpdate(val release: ru.ashcrm.app.update.Release) : Screen
 }
 
 /** The state of the test notification on the settings screen. */
@@ -49,9 +50,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private val _portal = MutableStateFlow<String?>(null)
     val portal: StateFlow<String?> = _portal
 
-    /** Null until the CRM answered; Unsupported — the CRM has no API of the app. */
-    private val _decision = MutableStateFlow<UpdateDecision?>(null)
-    val decision: StateFlow<UpdateDecision?> = _decision
+    /** What the CRM says about the app; Unknown until it answered. */
+    private val _crm = MutableStateFlow(CrmState.Unknown)
+    val crm: StateFlow<CrmState> = _crm
+
+    /** What to offer about the version of the app (from GitHub). */
+    private val _decision = MutableStateFlow<UpdateDecision>(UpdateDecision.None)
+    val decision: StateFlow<UpdateDecision> = _decision
+
+    /** The CRM speaks another contract and GitHub has nothing newer: told once per start. */
+    private val _warnIncompatible = MutableStateFlow(false)
+    val warnIncompatible: StateFlow<Boolean> = _warnIncompatible
+
+    val supported get() = _crm.value == CrmState.Supported
 
     private val _test = MutableStateFlow<TestState>(TestState.Idle)
     val test: StateFlow<TestState> = _test
@@ -89,8 +100,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** Checks the address and saves it; returns a text for a person when it is not an AshCRM. */
     suspend fun setPortal(input: String): String? {
         val p = Portal.normalize(input) ?: return "Введите адрес вида crm.company.ru (http:// — только для локальной сети)"
-        val decision = try {
-            ru.ashcrm.app.update.VersionRules.decide(g.api.appInfo(p), ru.ashcrm.app.BuildConfig.VERSION_CODE, ru.ashcrm.app.BuildConfig.CONTRACT, null)
+        val crm = try {
+            g.updater.crm(p)
         } catch (e: HttpError) {
             return "По этому адресу не отвечает AshCRM (ответ ${e.status})"
         } catch (e: IOException) {
@@ -98,7 +109,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             return "По этому адресу не отвечает AshCRM"
         }
-        if (decision is UpdateDecision.Unsupported && !isAshCrm(p)) return "По этому адресу не отвечает AshCRM"
+        if (crm == CrmState.Unsupported && !isAshCrm(p)) return "По этому адресу не отвечает AshCRM"
         g.prefs.set(Prefs.PORTAL, p)
         g.prefs.set(Prefs.CONNECT_SKIPPED, null)
         _portal.value = p
@@ -116,13 +127,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun open(p: String) {
-        val decision = runCatching { g.updater.check(p) }.getOrNull()
-        _decision.value = decision
-        if (decision is UpdateDecision.Mandatory) {
-            _screen.value = Screen.MustUpdate(decision.info)
-            return
-        }
-        val supported = decision != null && decision !is UpdateDecision.Unsupported && decision !is UpdateDecision.CrmTooOld
+        val crm = runCatching { g.updater.crm(p) }.getOrDefault(CrmState.Unknown)
+        _crm.value = crm
+        _warnIncompatible.value = crm == CrmState.Incompatible
         val connected = g.auth.connected.filterNotNull().first()
         startUrl = when {
             supported && !connected && g.prefs.get(Prefs.CONNECT_SKIPPED) != true -> g.auth.connectUrl(p)
@@ -133,31 +140,43 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             supported && connected && g.prefs.get(Prefs.SETUP_DONE) != true -> Screen.Settings(firstRun = true)
             else -> Screen.Web
         }
-        // No answer of the CRM at the start (no network): the WebView shows its error, the version is checked on resume.
+        // No answer of the CRM at the start (no network): the WebView shows its error, the CRM is asked again on resume.
         if (connected) Register.enqueue(getApplication())
+        checkUpdate() // GitHub may be slow or closed: never in the way of the start
     }
 
-    /** Called on every return to the app: a version check at most every 6 hours. */
+    private var updateJob: kotlinx.coroutines.Job? = null
+
+    /** The latest release on GitHub; nothing happens when GitHub does not answer (owner: silently, next time). */
+    private fun checkUpdate() {
+        if (updateJob?.isActive == true) return
+        updateJob = viewModelScope.launch {
+            val d = g.updater.decide(_crm.value)
+            _decision.value = d
+            if (d is UpdateDecision.Mandatory) _screen.value = Screen.MustUpdate(d.release)
+            if (d is UpdateDecision.Mandatory) _warnIncompatible.value = false
+        }
+    }
+
+    /** Every return to the app: the CRM again while it did not answer or knew nothing; GitHub at most every 6 hours. */
     fun onResume() {
         val p = _portal.value ?: return
         viewModelScope.launch {
+            if (_crm.value == CrmState.Unknown || _crm.value == CrmState.Unsupported) {
+                runCatching { g.updater.crm(p) }.getOrNull()?.let { _crm.value = it }
+            }
             val last = g.prefs.get(Prefs.UPDATE_CHECKED_AT) ?: 0
-            // «Не поддерживает» (or no answer) is checked on every return: the CRM may have been updated meanwhile.
-            val settled = _decision.value.let { it != null && it !is UpdateDecision.Unsupported }
-            if (settled && System.currentTimeMillis() - last < 6 * 3600_000L) return@launch
-            val d = runCatching { g.updater.check(p) }.getOrNull() ?: return@launch
-            _decision.value = d
-            if (d is UpdateDecision.Mandatory) _screen.value = Screen.MustUpdate(d.info)
+            if (System.currentTimeMillis() - last >= 6 * 3600_000L || _crm.value == CrmState.Incompatible) checkUpdate()
         }
     }
 
     suspend fun declineUpdate() {
-        (_decision.value as? UpdateDecision.Optional)?.let { g.updater.decline(it.info) }
-        _decision.value = UpdateDecision.UpToDate
+        (_decision.value as? UpdateDecision.Optional)?.let { g.updater.decline(it.release) }
+        _decision.value = UpdateDecision.None
     }
 
-    fun dismissCrmTooOld() {
-        _decision.value = UpdateDecision.UpToDate
+    fun dismissIncompatible() {
+        _warnIncompatible.value = false
     }
 
     // ---- the device session ----
@@ -240,7 +259,6 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
             "login" -> viewModelScope.launch {
                 loggedOut = false
-                val supported = _decision.value.let { it != null && it !is UpdateDecision.Unsupported && it !is UpdateDecision.CrmTooOld }
                 if (supported && g.auth.connected.value == false && g.prefs.get(Prefs.CONNECT_SKIPPED) != true) connect()
             }
         }
@@ -256,7 +274,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             android.webkit.CookieManager.getInstance().removeAllCookies(null)
             android.webkit.WebStorage.getInstance().deleteAllData()
             _portal.value = null
-            _decision.value = null
+            _crm.value = CrmState.Unknown
             _screen.value = Screen.Portal
         }
     }

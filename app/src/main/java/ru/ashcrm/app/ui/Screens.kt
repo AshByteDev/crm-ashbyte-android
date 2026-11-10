@@ -70,8 +70,8 @@ import kotlinx.coroutines.launch
 import ru.ashcrm.app.BuildConfig
 import ru.ashcrm.app.data.Prefs
 import ru.ashcrm.app.graph
-import ru.ashcrm.app.net.AppInfo
-import ru.ashcrm.app.update.UpdateDecision
+import ru.ashcrm.app.update.CrmState
+import ru.ashcrm.app.update.Release
 
 private const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
 
@@ -149,7 +149,7 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
     val scope = rememberCoroutineScope()
     val prefs by g.prefs.data.collectAsState(initial = null)
     val connected by model.connected.collectAsState()
-    val decision by model.decision.collectAsState()
+    val crm by model.crm.collectAsState()
     val test by model.test.collectAsState()
     val portal by model.portal.collectAsState()
     var tick by remember { mutableIntStateOf(0) }
@@ -160,10 +160,10 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
     val batteryOk = remember(tick) { batteryFree(ctx) }
     val oem = remember { Oem.step() }
     val autostartOk = prefs?.get(Prefs.AUTOSTART_DONE) == true
-    val supported = decision.let { it != null && it !is UpdateDecision.Unsupported && it !is UpdateDecision.CrmTooOld }
+    val supported = crm == CrmState.Supported
     var confirmPortal by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
-    var update by remember { mutableStateOf<AppInfo?>(null) }
+    var update by remember { mutableStateOf<Release?>(null) }
     var checking by remember { mutableStateOf(false) }
 
     Surface(Modifier.fillMaxSize()) {
@@ -180,8 +180,9 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
             // --- connection
             val regError = prefs?.get(Prefs.REGISTER_ERROR)
             val (status, ok) = when {
-                decision is UpdateDecision.CrmTooOld -> "CRM старее приложения — обратитесь к администратору" to false
-                decision is UpdateDecision.Unsupported -> "CRM пока не поддерживает уведомления приложения. Работать в CRM можно, уведомления появятся после обновления CRM." to false
+                crm == CrmState.Incompatible -> "Эта версия приложения не подходит к CRM — обновите приложение или обратитесь к администратору" to false
+                crm == CrmState.Unknown -> "Нет связи с CRM — проверим при следующем открытии" to false
+                crm == CrmState.Unsupported -> "CRM пока не поддерживает уведомления приложения. Работать в CRM можно, уведомления появятся после обновления CRM." to false
                 !BuildConfig.HAS_FIREBASE -> "Эта сборка без Firebase: уведомления недоступны" to false
                 connected != true -> "Уведомления не подключены к этому телефону" to false
                 regError != null -> regError to false
@@ -252,10 +253,10 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
                     val p = portal ?: return@OutlinedButton
                     checking = true
                     scope.launch {
-                        when (val d = runCatching { g.updater.check(p) }.getOrNull()) {
-                            is UpdateDecision.Optional -> update = d.info
-                            is UpdateDecision.Mandatory -> update = d.info
-                            null -> android.widget.Toast.makeText(ctx, "Нет связи с CRM", android.widget.Toast.LENGTH_SHORT).show()
+                        val release = g.updater.latest()
+                        when {
+                            release == null -> android.widget.Toast.makeText(ctx, "Нет связи с GitHub — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
+                            release.versionCode > BuildConfig.VERSION_CODE -> update = release
                             else -> android.widget.Toast.makeText(ctx, "Установлена последняя версия", android.widget.Toast.LENGTH_SHORT).show()
                         }
                         checking = false
@@ -283,7 +284,7 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
         confirmButton = { TextButton(onClick = { confirmDisconnect = false; model.disconnect() }) { Text("Отключить") } },
         dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Отмена") } },
     )
-    update?.let { info -> UpdateDialog(info, mandatory = false, onLater = { update = null }) }
+    update?.let { r -> UpdateDialog(r, mandatory = false, onLater = { update = null }) }
 }
 
 @Composable
@@ -304,7 +305,7 @@ private fun Step(title: String, text: String, ok: Boolean, unknown: Boolean = fa
 
 /** Download → check → system installer; with [mandatory] there is no «Позже». */
 @Composable
-fun UpdateDialog(info: AppInfo, mandatory: Boolean, onLater: () -> Unit) {
+fun UpdateDialog(release: Release, mandatory: Boolean, onLater: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val scope = rememberCoroutineScope()
@@ -325,8 +326,7 @@ fun UpdateDialog(info: AppInfo, mandatory: Boolean, onLater: () -> Unit) {
             error = null
             progress = 0f
             try {
-                val p = g.prefs.get(Prefs.PORTAL) ?: error("Нет адреса CRM")
-                val file = g.updater.download(p, info) { progress = it }
+                val file = g.updater.download(release) { progress = it }
                 g.updater.install(file)
             } catch (e: Exception) {
                 error = e.message ?: "Не удалось обновить"
@@ -337,9 +337,13 @@ fun UpdateDialog(info: AppInfo, mandatory: Boolean, onLater: () -> Unit) {
     val body: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                if (mandatory) "CRM обновилась, и эта версия приложения больше не может получать уведомления. Установите версию ${info.versionName}."
-                else "Доступна версия ${info.versionName} (у вас ${BuildConfig.VERSION_NAME})."
+                if (mandatory) "Эта версия приложения больше не поддерживается. Установите версию ${release.versionName}."
+                else "Доступна версия ${release.versionName} (у вас ${BuildConfig.VERSION_NAME})."
             )
+            if (release.notes.isNotEmpty()) {
+                Text("Что нового", fontWeight = FontWeight.SemiBold)
+                release.notes.take(5).forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+            }
             if (needPermission) Text("Разрешите AshCRM устанавливать приложения и вернитесь сюда.", color = Warn)
             progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

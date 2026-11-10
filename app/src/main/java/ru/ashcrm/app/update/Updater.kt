@@ -7,54 +7,96 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import androidx.core.net.toUri
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import okhttp3.Request
 import ru.ashcrm.app.BuildConfig
-import ru.ashcrm.app.data.Portal
 import ru.ashcrm.app.data.Prefs
-import ru.ashcrm.app.net.AppInfo
 import ru.ashcrm.app.net.CrmApi
+import ru.ashcrm.app.net.HttpError
+import ru.ashcrm.app.net.json
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 
-/** What the app does about its version (docs/ANDROID_CONTRACT.md §2.2). */
+/** A release of the app on GitHub: `android.json` next to `ashcrm.apk` (README → «Выпуск версии»). */
+@Serializable
+data class Release(
+    @SerialName("version_code") val versionCode: Int,
+    @SerialName("version_name") val versionName: String,
+    /** Below it the update is a must (no «Позже»). */
+    @SerialName("min_version_code") val minVersionCode: Int = 0,
+    val sha256: String,
+    val size: Long = 0,
+    val url: String,
+    /** «Что нового»: a few short lines. */
+    val notes: List<String> = emptyList(),
+)
+
+/** What the CRM says about the app (docs/ANDROID_CONTRACT.md §2): only whether it knows it and the contract. */
+enum class CrmState {
+    /** No answer (no network): decided later. */
+    Unknown,
+    /** The CRM has no API of the app: a shell of the PWA without notifications. */
+    Unsupported,
+    Supported,
+    /** Another major version of the contract: notifications are not registered until the versions meet. */
+    Incompatible,
+}
+
+/** What the app does about its version (owner 10.11: versions and the APK come from GitHub). */
 sealed interface UpdateDecision {
-    /** The CRM does not know the app: a shell of the PWA, no notifications. */
-    data object Unsupported : UpdateDecision
-    data object UpToDate : UpdateDecision
+    data object None : UpdateDecision
     /** A newer version, offered once; «Позже» until the next one. */
-    data class Optional(val info: AppInfo) : UpdateDecision
-    /** Another major contract: no «Позже», notifications are not registered. */
-    data class Mandatory(val info: AppInfo) : UpdateDecision
-    /** The app is newer than the CRM: nothing to install, the administrator must update the CRM. */
-    data class CrmTooOld(val info: AppInfo) : UpdateDecision
+    data class Optional(val release: Release) : UpdateDecision
+    /** Below `min_version_code`, or the CRM speaks another contract and GitHub has a newer app: no «Позже». */
+    data class Mandatory(val release: Release) : UpdateDecision
 }
 
 object VersionRules {
     fun major(contract: String) = contract.substringBefore('.').toIntOrNull() ?: -1
 
-    fun decide(info: AppInfo?, ownCode: Int, ownContract: String, declined: Int?): UpdateDecision = when {
-        info == null -> UpdateDecision.Unsupported
-        major(info.contract) != major(ownContract) ->
-            if (info.versionCode > ownCode) UpdateDecision.Mandatory(info) else UpdateDecision.CrmTooOld(info)
-        info.versionCode > ownCode && declined != info.versionCode -> UpdateDecision.Optional(info)
-        else -> UpdateDecision.UpToDate
+    fun crm(contract: String, own: String = BuildConfig.CONTRACT): CrmState = when {
+        major(contract) == major(own) -> CrmState.Supported
+        else -> CrmState.Incompatible
+    }
+
+    fun decide(release: Release?, ownCode: Int, declined: Int?, crm: CrmState): UpdateDecision = when {
+        release == null || release.versionCode <= ownCode -> UpdateDecision.None
+        ownCode < release.minVersionCode || crm == CrmState.Incompatible -> UpdateDecision.Mandatory(release)
+        declined != release.versionCode -> UpdateDecision.Optional(release)
+        else -> UpdateDecision.None
     }
 }
 
 class Updater(private val ctx: Context, private val prefs: Prefs, private val api: CrmApi) {
 
-    suspend fun check(portal: String): UpdateDecision {
-        val d = VersionRules.decide(api.appInfo(portal), BuildConfig.VERSION_CODE, BuildConfig.CONTRACT, prefs.get(Prefs.DECLINED_VERSION))
-        prefs.set(Prefs.UPDATE_CHECKED_AT, System.currentTimeMillis())
-        prefs.set(Prefs.BLOCKED, d is UpdateDecision.Mandatory || d is UpdateDecision.CrmTooOld)
-        return d
+    /** Does the CRM know the app (GET /app/android)? Throws on no network — the caller keeps [CrmState.Unknown]. */
+    suspend fun crm(portal: String): CrmState {
+        val info = api.appInfo(portal) ?: return CrmState.Unsupported.also { prefs.set(Prefs.BLOCKED, null) }
+        return VersionRules.crm(info.contract).also { prefs.set(Prefs.BLOCKED, it == CrmState.Incompatible) }
     }
 
-    suspend fun decline(info: AppInfo) = prefs.set(Prefs.DECLINED_VERSION, info.versionCode)
+    /** The latest release on GitHub; null — GitHub did not answer (blocked, no network): silently, next time. */
+    suspend fun latest(): Release? = withContext(Dispatchers.IO) {
+        runCatching {
+            api.http.newCall(Request.Builder().url(BuildConfig.UPDATE_MANIFEST).build()).execute().use { res ->
+                if (!res.isSuccessful) return@use null
+                json.decodeFromString<Release>(res.body.string()).takeIf { releaseUrlOk(it.url) }
+            }
+        }.getOrNull()
+    }
+
+    suspend fun decide(crm: CrmState): UpdateDecision {
+        val release = latest()
+        if (release != null) prefs.set(Prefs.UPDATE_CHECKED_AT, System.currentTimeMillis())
+        return VersionRules.decide(release, BuildConfig.VERSION_CODE, prefs.get(Prefs.DECLINED_VERSION), crm)
+    }
+
+    suspend fun decline(release: Release) = prefs.set(Prefs.DECLINED_VERSION, release.versionCode)
 
     /** Android lets an app install others only after the person allowed it in the settings, once. */
     fun canInstall() = ctx.packageManager.canRequestPackageInstalls()
@@ -63,14 +105,18 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
         android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${ctx.packageName}".toUri()
     )
 
-    /** Downloads the APK and checks its SHA-256 and that it is signed like this app; throws with a text for a person. */
-    suspend fun download(portal: String, info: AppInfo, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
-        val path = Portal.safePath(info.url) ?: throw IOException("CRM дала неверную ссылку на файл")
+    /**
+     * Downloads the APK of [release] from GitHub and checks its SHA-256 and that it is signed like this app; throws
+     * with a text for a person. Only the releases of our repository, only over https, redirects only to GitHub.
+     */
+    suspend fun download(release: Release, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
+        if (!releaseUrlOk(release.url)) throw IOException("Неверная ссылка на обновление")
         val file = File(ctx.cacheDir, "update.apk").apply { delete() }
         val digest = MessageDigest.getInstance("SHA-256")
-        api.http.newCall(Request.Builder().url(portal + path).build()).execute().use { res ->
-            if (!res.isSuccessful) throw IOException("Не удалось скачать обновление: ответ ${res.code}")
-            val total = res.body.contentLength().takeIf { it > 0 } ?: info.size
+        api.http.newCall(Request.Builder().url(release.url).build()).execute().use { res ->
+            if (!res.isSuccessful) throw HttpError(res.code, null, "Не удалось скачать обновление: ответ ${res.code}")
+            if (res.request.url.host !in DOWNLOAD_HOSTS) throw IOException("Обновление пришло не с GitHub — отменено")
+            val total = res.body.contentLength().takeIf { it > 0 } ?: release.size
             res.body.byteStream().use { input ->
                 file.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)
@@ -87,7 +133,7 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
             }
         }
         val hex = digest.digest().joinToString("") { "%02x".format(it) }
-        if (!hex.equals(info.sha256, ignoreCase = true)) {
+        if (!hex.equals(release.sha256, ignoreCase = true)) {
             file.delete()
             throw IOException("Файл обновления повреждён (не совпала контрольная сумма)")
         }
@@ -113,7 +159,7 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
         return own.isNotEmpty() && certs(archive) == own
     }
 
-    /** Hands the checked file to the system installer; it asks the person to confirm. */
+    /** Hands the checked file to the system installer; it asks the person to confirm (not on later self-updates). */
     fun install(apk: File) {
         val installer = ctx.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
@@ -129,5 +175,13 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
             )
             s.commit(status.intentSender)
         }
+    }
+
+    companion object {
+        /** github.com answers a release download with a redirect to its storage of files. */
+        val DOWNLOAD_HOSTS = setOf("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
+
+        /** Only an asset of a release of our repository, over https. */
+        fun releaseUrlOk(url: String) = url.startsWith(BuildConfig.RELEASES_PREFIX) && !url.contains("..")
     }
 }

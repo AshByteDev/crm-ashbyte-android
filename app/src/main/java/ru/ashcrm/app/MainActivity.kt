@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity(), WebHost {
         val screen by model.screen.collectAsState()
         val portal by model.portal.collectAsState()
         val decision by model.decision.collectAsState()
+        val incompatible by model.warnIncompatible.collectAsState()
         val scope = rememberCoroutineScope()
 
         val bars = pageColor.takeIf { screen == Screen.Web } ?: MaterialTheme.colorScheme.background
@@ -177,18 +178,19 @@ class MainActivity : ComponentActivity(), WebHost {
                 Screen.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 Screen.Portal -> PortalScreen(model)
                 is Screen.Settings -> SettingsScreen(model, s.firstRun)
-                is Screen.MustUpdate -> UpdateDialog(s.info, mandatory = true, onLater = {})
+                is Screen.MustUpdate -> UpdateDialog(s.release, mandatory = true, onLater = {})
                 Screen.Web -> Unit
             }
-            if (screen == Screen.Web) when (val d = decision) {
-                is UpdateDecision.Optional -> UpdateDialog(d.info, mandatory = false, onLater = { scope.launch { model.declineUpdate() } })
-                is UpdateDecision.CrmTooOld -> AlertDialog(
-                    onDismissRequest = model::dismissCrmTooOld,
-                    title = { Text("Приложение новее CRM") },
-                    text = { Text("Уведомления не будут приходить, пока администратор не обновит CRM. Работать в CRM можно как обычно.") },
-                    confirmButton = { TextButton(onClick = model::dismissCrmTooOld) { Text("Понятно") } },
+            if (screen == Screen.Web) {
+                (decision as? UpdateDecision.Optional)?.let { d ->
+                    UpdateDialog(d.release, mandatory = false, onLater = { scope.launch { model.declineUpdate() } })
+                }
+                if (incompatible && decision !is UpdateDecision.Optional) AlertDialog(
+                    onDismissRequest = model::dismissIncompatible,
+                    title = { Text("Версии не совпадают") },
+                    text = { Text("Эта версия приложения не подходит к вашей CRM: уведомления не будут приходить. Работать в CRM можно как обычно; новая версия приложения появится в обновлениях.") },
+                    confirmButton = { TextButton(onClick = model::dismissIncompatible) { Text("Понятно") } },
                 )
-                else -> Unit
             }
         }
     }

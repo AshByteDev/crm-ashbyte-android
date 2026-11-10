@@ -1,25 +1,44 @@
 package ru.ashcrm.app.update
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import ru.ashcrm.app.net.AppInfo
 
 class VersionRulesTest {
-    private fun info(contract: String, code: Int) = AppInfo(contract, code, "x", "00", 1, "/download/ashcrm.apk")
+    private fun release(code: Int, min: Int = 0) = Release(code, "0.$code.0", min, "00", 1,
+        "https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.$code.0/ashcrm.apk")
 
-    @Test fun noApiMeansUnsupported() = assertEquals(UpdateDecision.Unsupported, VersionRules.decide(null, 5, "1.0", null))
+    @Test fun noAnswerOfGitHubChangesNothing() =
+        assertEquals(UpdateDecision.None, VersionRules.decide(null, 5, null, CrmState.Supported))
 
-    @Test fun sameVersionIsUpToDate() = assertEquals(UpdateDecision.UpToDate, VersionRules.decide(info("1.3", 5), 5, "1.0", null))
-
-    @Test fun newerIsOfferedOnce() {
-        assertTrue(VersionRules.decide(info("1.2", 6), 5, "1.0", null) is UpdateDecision.Optional)
-        assertEquals(UpdateDecision.UpToDate, VersionRules.decide(info("1.2", 6), 5, "1.0", declined = 6))
-        assertTrue(VersionRules.decide(info("1.2", 7), 5, "1.0", declined = 6) is UpdateDecision.Optional)
+    @Test fun sameOrOlderIsNothing() {
+        assertEquals(UpdateDecision.None, VersionRules.decide(release(5), 5, null, CrmState.Supported))
+        assertEquals(UpdateDecision.None, VersionRules.decide(release(4), 5, null, CrmState.Incompatible))
     }
 
-    @Test fun otherMajorIsAMust() {
-        assertTrue(VersionRules.decide(info("2.0", 6), 5, "1.4", declined = 6) is UpdateDecision.Mandatory)
-        assertTrue(VersionRules.decide(info("1.0", 5), 5, "2.0", null) is UpdateDecision.CrmTooOld)
+    @Test fun newerIsOfferedOnce() {
+        assertTrue(VersionRules.decide(release(6), 5, null, CrmState.Supported) is UpdateDecision.Optional)
+        assertEquals(UpdateDecision.None, VersionRules.decide(release(6), 5, declined = 6, crm = CrmState.Supported))
+        assertTrue(VersionRules.decide(release(7), 5, declined = 6, crm = CrmState.Supported) is UpdateDecision.Optional)
+    }
+
+    @Test fun belowMinimumIsAMustEvenIfDeclined() =
+        assertTrue(VersionRules.decide(release(7, min = 6), 5, declined = 7, crm = CrmState.Supported) is UpdateDecision.Mandatory)
+
+    @Test fun otherContractWithNewerAppIsAMust() =
+        assertTrue(VersionRules.decide(release(6), 5, declined = 6, crm = CrmState.Incompatible) is UpdateDecision.Mandatory)
+
+    @Test fun contractMajor() {
+        assertEquals(CrmState.Supported, VersionRules.crm("1.0", own = "1.2"))
+        assertEquals(CrmState.Incompatible, VersionRules.crm("2.0", own = "1.2"))
+    }
+
+    @Test fun onlyOurReleases() {
+        assertTrue(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.3.0/ashcrm.apk"))
+        assertFalse(Updater.releaseUrlOk("https://github.com/someone/else/releases/download/v1/ashcrm.apk"))
+        assertFalse(Updater.releaseUrlOk("http://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.3.0/ashcrm.apk"))
+        assertFalse(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/../../x/ashcrm.apk"))
+        assertFalse(Updater.releaseUrlOk("https://evil.example/ashcrm.apk"))
     }
 }
