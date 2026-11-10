@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 17: a CRM in the local network of a company (192.168.x.x, crm.local) needs it; asked only for such an address. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Outside Google Play: the app asks once to be left out of battery optimisation (see the settings screen). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Updates of the APK from the CRM (docs/ANDROID_CONTRACT.md §2). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Voice messages in the page of the CRM. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <!-- Package visibility: is Google Play services there (FCM) — Register.hasGoogle. -->
+    <queries>
+        <package android:name="com.google.android.gms" />
+    </queries>
+
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security"
+        android:supportsRtl="false"
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33"
+        android:theme="@style/Theme.AshCRM">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service android:name=".push.PushService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <receiver android:name=".push.ActionReceiver" android:exported="false" />
+        <receiver android:name=".update.InstallReceiver" android:exported="false" />
+
+        <!-- The icon and colour of a notification FCM would show by itself (never: every message is data only). -->
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_notify" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="team" />
+        <!-- Firebase Messaging 26: the register()/onRegistered API (instead of the deprecated getToken) is opt-in. -->
+        <meta-data android:name="firebase_messaging_installation_id_enabled" android:value="true" />
+        <!-- No analytics, no ad id: Firebase is here only to carry encrypted pushes. -->
+        <meta-data android:name="firebase_analytics_collection_deactivated" android:value="true" />
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+    </application>
+</manifest>

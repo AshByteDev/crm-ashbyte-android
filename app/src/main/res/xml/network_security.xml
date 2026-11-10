@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Clear text is allowed by the platform; the app itself lets http:// only to this device and the local network
+     (docs/ANDROID_CONTRACT.md §1, data/Portal.kt). Only system CAs: a CA a person added cannot read the traffic. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

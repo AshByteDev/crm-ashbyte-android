@@ -1,0 +1,38 @@
+package ru.ashcrm.app.push
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ru.ashcrm.app.graph
+
+/**
+ * Debug only. `KEYS` prints the public keys of push encryption (what the CRM would get in a subscription);
+ * `PUSH --es p <base64url>` handles an encrypted body exactly like a message of FCM (on a worker thread, as FCM does).
+ */
+class DebugPushReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        val done = goAsync()
+        ctx.graph.scope.launch {
+            try {
+                when (intent.action) {
+                    "ru.ashcrm.app.debug.KEYS" -> {
+                        val k = ctx.graph.pushKeys.get()
+                        Log.i("AshPush", "KEYS p256dh=${PushKeys.b64(k.public)} auth=${PushKeys.b64(k.auth)}")
+                        Log.i("AshPush", "FCM token=${Register.fcmToken(ctx.graph.prefs) ?: "none"}")
+                    }
+                    "ru.ashcrm.app.debug.PUSH" -> {
+                        val p = intent.getStringExtra("p") ?: return@launch
+                        val ok = withContext(Dispatchers.IO) { PushHandler.handle(ctx, p) }
+                        Log.i("AshPush", "PUSH handled=$ok")
+                    }
+                }
+            } finally {
+                done.finish()
+            }
+        }
+    }
+}

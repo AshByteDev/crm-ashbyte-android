@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: a push can be fed through adb without Firebase (README → «Проверка без Firebase»). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver android:name=".push.DebugPushReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="ru.ashcrm.app.debug.PUSH" />
+                <action android:name="ru.ashcrm.app.debug.KEYS" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
