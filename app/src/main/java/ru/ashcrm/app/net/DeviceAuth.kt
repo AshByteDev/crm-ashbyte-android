@@ -18,7 +18,7 @@ import java.util.Base64
  * The device session of the app (docs/ANDROID_CONTRACT.md §3): the connect page in the WebView gives a one-time code,
  * the app exchanges it for keys. The refresh key is single-use, so it is saved before anything else uses it.
  */
-class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private val api: CrmApi) {
+class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private val api: CrmApi, private val key: DeviceKey = DeviceKey()) {
 
     /** One connection attempt: what the app put into the address and must see again in the answer. */
     class Pending(val verifier: String, val challenge: String, val state: String)
@@ -60,7 +60,8 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
     suspend fun finish(portal: String, code: String, state: String) = mutex.withLock {
         val p = pending?.takeIf { expects(state) } ?: throw IllegalStateException("state mismatch")
         pending = null
-        save(api.token(portal, code, p.verifier))
+        key.reset() // a new session gets a new key of the phone
+        save(api.token(portal, code, p.verifier, key.publicKey()))
         runCatching { api.me(portal, access!!) }.getOrNull()?.let {
             prefs.set(Prefs.USER_NAME, it.displayName)
             prefs.set(Prefs.TENANT_NAME, it.tenantName)
@@ -73,7 +74,8 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
         val refresh = box.open(prefs.get(Prefs.REFRESH))?.let { String(it) } ?: return null.also { _connected.value = false }
         repeat(3) { attempt ->
             try {
-                save(api.refresh(portal, refresh))
+                val ts = Instant.now().epochSecond
+                save(api.refresh(portal, refresh, key.publicKey(), ts, key.sign(refresh, ts)))
                 return access
             } catch (e: HttpError) {
                 when (e.status) {
@@ -84,6 +86,11 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
             }
         }
         null
+    }
+
+    /** Forgets the access key so the next [accessToken] refreshes (the debug build checks the signed refresh so). */
+    internal fun expireAccess() {
+        accessUntil = Instant.EPOCH
     }
 
     /** «Отключить уведомления»: ends the session in the CRM when reachable and forgets the keys anyway. */
@@ -102,6 +109,7 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
     }
 
     private suspend fun forget() {
+        key.reset()
         access = null
         accessUntil = Instant.EPOCH
         prefs.set(Prefs.REFRESH, null)

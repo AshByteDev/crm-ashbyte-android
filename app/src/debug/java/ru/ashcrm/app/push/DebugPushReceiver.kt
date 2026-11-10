@@ -24,6 +24,14 @@ class DebugPushReceiver : BroadcastReceiver() {
                         Log.i("AshPush", "KEYS p256dh=${PushKeys.b64(k.public)} auth=${PushKeys.b64(k.auth)}")
                         Log.i("AshPush", "FCM token=${Register.fcmToken(ctx.graph.prefs) ?: "none"}")
                     }
+                    "ru.ashcrm.app.debug.REFRESH" -> {
+                        val g = ctx.graph
+                        val portal = g.prefs.get(ru.ashcrm.app.data.Prefs.PORTAL) ?: return@launch
+                        val key = ru.ashcrm.app.net.DeviceKey().publicKey()
+                        g.auth.expireAccess()
+                        val ok = runCatching { g.auth.accessToken(portal) != null }
+                        Log.i("AshPush", "REFRESH device_key=${key?.take(16)}… ok=${ok.getOrNull()} err=${ok.exceptionOrNull()?.message}")
+                    }
                     "ru.ashcrm.app.debug.PUSH" -> {
                         val p = intent.getStringExtra("p") ?: return@launch
                         val ok = withContext(Dispatchers.IO) { PushHandler.handle(ctx, p) }

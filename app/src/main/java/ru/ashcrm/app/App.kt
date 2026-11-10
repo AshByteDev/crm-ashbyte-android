@@ -36,6 +36,7 @@ class App : Application() {
         if (BuildConfig.DEBUG) android.webkit.WebView.setWebContentsDebuggingEnabled(true)
         Notifier.createChannels(this)
         graph.scope.launch { graph.auth.load() }
+        ru.ashcrm.app.net.KeepAlive.schedule(this)
     }
 }
 

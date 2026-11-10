@@ -6,6 +6,7 @@
             <intent-filter>
                 <action android:name="ru.ashcrm.app.debug.PUSH" />
                 <action android:name="ru.ashcrm.app.debug.KEYS" />
+                <action android:name="ru.ashcrm.app.debug.REFRESH" />
             </intent-filter>
         </receiver>
     </application>

@@ -46,6 +46,17 @@ data class Subscription(val endpoint: String, val p256dh: String, val auth: Stri
 data class WebCode(val code: String)
 
 @Serializable
+private data class TokenRequest(val code: String, val verifier: String, @SerialName("device_key") val deviceKey: String? = null)
+
+@Serializable
+private data class RefreshRequest(
+    @SerialName("refresh_token") val refresh: String,
+    @SerialName("device_key") val deviceKey: String? = null,
+    @SerialName("device_ts") val ts: Long? = null,
+    @SerialName("device_sig") val sig: String? = null,
+)
+
+@Serializable
 private data class ErrorBody(val error: ErrorInfo? = null)
 
 @Serializable
@@ -85,11 +96,13 @@ class CrmApi(base: OkHttpClient = OkHttpClient()) {
         if (e.status == 404) null else throw e
     }
 
-    suspend fun token(portal: String, code: String, verifier: String): DeviceTokens =
-        json.decodeFromString(call(portal, "POST", "/auth/desktop/token", json.encodeToString(mapOf("code" to code, "verifier" to verifier)), null))
+    /** §3: the code of the connect page → keys; [deviceKey] — the public key of the phone (§3.3, ignored before 1.3). */
+    suspend fun token(portal: String, code: String, verifier: String, deviceKey: String? = null): DeviceTokens =
+        json.decodeFromString(call(portal, "POST", "/auth/desktop/token", json.encodeToString(TokenRequest(code, verifier, deviceKey)), null))
 
-    suspend fun refresh(portal: String, refresh: String): DeviceTokens =
-        json.decodeFromString(call(portal, "POST", "/auth/desktop/refresh", json.encodeToString(mapOf("refresh_token" to refresh)), null))
+    /** §3.3: the refresh is signed by the key of the phone; a CRM before 1.3 ignores the extra fields. */
+    suspend fun refresh(portal: String, refresh: String, deviceKey: String? = null, ts: Long? = null, sig: String? = null): DeviceTokens =
+        json.decodeFromString(call(portal, "POST", "/auth/desktop/refresh", json.encodeToString(RefreshRequest(refresh, deviceKey, ts, sig)), null))
 
     suspend fun me(portal: String, access: String): Me = json.decodeFromString(call(portal, "GET", "/me", null, access))
 
