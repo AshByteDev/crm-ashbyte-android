@@ -46,6 +46,7 @@ publish: dist
 	if gh release view "v$$V" >/dev/null 2>&1; then echo "релиз v$$V уже есть — поднимите versionCode/versionName"; exit 1; fi; \
 	gh release create "v$$V" $(DIST)/ashcrm.apk $(DIST)/android.json --title "AshCRM $$V" --notes-file release/notes.txt --target "$$(git rev-parse HEAD)"; \
 	echo "опубликовано: телефоны предложат обновление при следующем запуске"
+	@$(GRADLE) --stop -q  # отдать память: Gradle и компилятор Kotlin держат по нескольку ГБ
 
 emulator:         ## эмулятор без окна (Medium_Phone_API_37.0 из Android Studio)
 	$(SDK)/emulator/emulator -avd Medium_Phone_API_37.0 -no-window -no-audio -no-boot-anim -no-snapshot-save &
