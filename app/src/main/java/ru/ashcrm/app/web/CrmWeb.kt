@@ -176,10 +176,7 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
 
     private inner class Chrome : WebChromeClient() {
         override fun onShowFileChooser(v: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-            val intent = params.createIntent().apply {
-                if (params.mode == FileChooserParams.MODE_OPEN_MULTIPLE) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            }
-            host.pickFiles(intent, callback)
+            host.pickFiles(pickIntent(params), callback)
             return true
         }
 
@@ -190,6 +187,24 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
             val grant = { ok: Boolean -> if (ok) request.grant(arrayOf(audio)) else request.deny() }
             if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) grant(true)
             else host.requestAudio(grant)
+        }
+    }
+
+    /**
+     * The system picker for an `<input type=file>`. `accept` may hold extensions (".pdf,.docx"), which Android
+     * does not take as a type: they turn into MIME types here, and what has no known type opens the picker for any file.
+     */
+    private fun pickIntent(params: WebChromeClient.FileChooserParams): Intent {
+        val types = params.acceptTypes.orEmpty()
+            .flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            .map { if (it.startsWith('.')) android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) ?: "*/*" else it }
+            .distinct()
+        return Intent(Intent.ACTION_GET_CONTENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            if (types.isEmpty() || "*/*" in types) type = "*/*"
+            else if (types.size == 1) type = types[0]
+            else { type = "*/*"; putExtra(Intent.EXTRA_MIME_TYPES, types.toTypedArray()) }
+            if (params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
     }
 

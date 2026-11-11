@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -66,8 +65,17 @@ class MainActivity : ComponentActivity(), WebHost {
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val files = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data))
+        fileCallback?.onReceiveValue(picked(r.resultCode, r.data))
         fileCallback = null
+    }
+
+    /** With «several files» allowed the picker hands them in clipData, even one file; parseResult reads only data. */
+    private fun picked(code: Int, data: Intent?): Array<Uri>? {
+        if (code != RESULT_OK || data == null) return null
+        val clip = data.clipData
+        val uris = if (clip != null && clip.itemCount > 0) List(clip.itemCount) { clip.getItemAt(it).uri }.filterNotNull()
+        else listOfNotNull(data.data)
+        return uris.takeIf { it.isNotEmpty() }?.toTypedArray()
     }
     private var audioCallback: ((Boolean) -> Unit)? = null
     private val audio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
