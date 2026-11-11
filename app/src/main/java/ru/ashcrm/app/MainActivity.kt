@@ -192,6 +192,10 @@ class MainActivity : ComponentActivity(), WebHost {
                     confirmButton = { TextButton(onClick = model::dismissIncompatible) { Text("Понятно") } },
                 )
             }
+            // The address check failed and GitHub has a newer app: offer it right on the address screen.
+            if (screen == Screen.Portal) (decision as? UpdateDecision.Optional)?.let { d ->
+                UpdateDialog(d.release, mandatory = false, onLater = { scope.launch { model.declineUpdate() } })
+            }
         }
     }
 

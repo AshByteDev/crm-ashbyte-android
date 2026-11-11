@@ -107,14 +107,26 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         } catch (e: IOException) {
             return "Нет связи с $p: ${e.message ?: "проверьте адрес и интернет"}"
         } catch (e: Exception) {
+            // Not a network error and not an answer of the CRM: show what it was — a bare «не отвечает» hid a real bug.
+            android.util.Log.w("AshPortal", "address check failed", e)
+            offerUpdateIfAny()
+            return "Не удалось проверить адрес (${e.javaClass.simpleName}: ${e.message?.take(160) ?: "без описания"})"
+        }
+        if (crm == CrmState.Unsupported && !isAshCrm(p)) {
+            offerUpdateIfAny()
             return "По этому адресу не отвечает AshCRM"
         }
-        if (crm == CrmState.Unsupported && !isAshCrm(p)) return "По этому адресу не отвечает AshCRM"
         g.prefs.set(Prefs.PORTAL, p)
         g.prefs.set(Prefs.CONNECT_SKIPPED, null)
         _portal.value = p
         open(p)
         return null
+    }
+
+    /** The address check failed: if GitHub has a newer app, the cause may be an old one — offer the update right here. */
+    private suspend fun offerUpdateIfAny() {
+        val r = g.updater.latest() ?: return
+        if (r.versionCode > ru.ashcrm.app.BuildConfig.VERSION_CODE) _decision.value = UpdateDecision.Optional(r)
     }
 
     /** An AshCRM without the app API answers the probe of the Windows app with a JSON 401 (NOTIFY_CONTRACT §3.2). */
