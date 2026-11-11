@@ -1,7 +1,13 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <group android:scaleX="0.19" android:scaleY="0.19" android:translateX="5.36" android:translateY="6.31">
-        <path android:fillColor="#FFFFFFFF" android:pathData="M136,352 L222,164 Q228,150 244,150 L280,150 L192,352 Z" />
-        <path android:fillColor="#FFFFFFFF" android:pathData="M287,180 L376,352 L317,352 L291,301 L224,301 L246,253 L267,253 L259,237 Z" />
+    <!-- promo/ashcrm-icons-signature (CRM): the A and the signature «crm» inside the 66dp safe circle of an adaptive icon. -->
+    <group android:scaleX="0.165" android:scaleY="0.165" android:translateX="11.76" android:translateY="11.76">
+        <group android:pivotX="256" android:pivotY="276" android:scaleX="1.15" android:scaleY="1.15" android:translateY="-20">
+            <path android:fillColor="#FFFFFFFF" android:pathData="M136,352 L222,164 Q228,150 244,150 L280,150 L192,352 Z"/>
+            <path android:fillColor="#FFFFFFFF" android:pathData="M287,180 L376,352 L317,352 L291,301 L224,301 L246,253 L267,253 L259,237 Z"/>
+        </group>
+        <group android:pivotX="253" android:pivotY="383" android:scaleX="1.15" android:scaleY="1.15" android:translateX="66" android:translateY="5">
+            <path android:strokeColor="#FFFFFFFF" android:strokeWidth="7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M225,372 C211,362 200,373 202,384 C203,398 217,401 225,392"/><path android:strokeColor="#FFFFFFFF" android:strokeWidth="7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M240,395 V370 M240,380 Q244,368 254,370"/><path android:strokeColor="#FFFFFFFF" android:strokeWidth="7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M267,395 V370 M267,380 C267,367 285,366 285,380 V395 M285,380 C285,367 304,366 304,380 V395"/>
+        </group>
     </group>
 </vector>

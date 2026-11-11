@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -167,6 +168,8 @@ class MainActivity : ComponentActivity(), WebHost {
         val portal by model.portal.collectAsState()
         val decision by model.decision.collectAsState()
         val incompatible by model.warnIncompatible.collectAsState()
+        val onLogin by model.onLogin.collectAsState()
+        var confirmPortal by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
         val bars = pageColor.takeIf { screen == Screen.Web } ?: MaterialTheme.colorScheme.background
@@ -180,6 +183,11 @@ class MainActivity : ComponentActivity(), WebHost {
                 }
                 LaunchedEffect(w) { model.navigate.collect { w.load(it) } }
                 AndroidView(factory = { w.view }, modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing))
+                // The login form of the CRM has no way back to the address screen: the app adds its own, under the form.
+                if (onLogin && screen == Screen.Web && !offline) TextButton(
+                    onClick = { confirmPortal = true },
+                    modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 12.dp),
+                ) { Text("Сменить адрес CRM") }
                 if (offline) Offline(onRetry = { offline = false; w.reload() })
             }
             when (val s = screen) {
@@ -200,6 +208,13 @@ class MainActivity : ComponentActivity(), WebHost {
                     confirmButton = { TextButton(onClick = model::dismissIncompatible) { Text("Понятно") } },
                 )
             }
+            if (confirmPortal) AlertDialog(
+                onDismissRequest = { confirmPortal = false },
+                title = { Text("Сменить адрес CRM?") },
+                text = { Text("Вы точно хотите сменить адрес CRM? Приложение вернётся к вводу адреса.") },
+                confirmButton = { TextButton(onClick = { confirmPortal = false; model.changePortal() }) { Text("Сменить") } },
+                dismissButton = { TextButton(onClick = { confirmPortal = false }) { Text("Отмена") } },
+            )
             // The address check failed and GitHub has a newer app: offer it right on the address screen.
             if (screen == Screen.Portal) (decision as? UpdateDecision.Optional)?.let { d ->
                 UpdateDialog(d.release, mandatory = false, onLater = { scope.launch { model.declineUpdate() } })

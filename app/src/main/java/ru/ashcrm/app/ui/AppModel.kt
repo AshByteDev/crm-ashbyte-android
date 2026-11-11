@@ -60,6 +60,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     /** The CRM speaks another contract and GitHub has nothing newer: told once per start. */
     private val _warnIncompatible = MutableStateFlow(false)
+
+    /** The login form of the CRM is open: the app shows its own «Сменить адрес CRM» under it. */
+    private val _onLogin = MutableStateFlow(false)
+    val onLogin: StateFlow<Boolean> = _onLogin
     val warnIncompatible: StateFlow<Boolean> = _warnIncompatible
 
     val supported get() = _crm.value == CrmState.Supported
@@ -245,6 +249,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val p = _portal.value ?: return
         if (!Portal.sameOrigin(p, url)) return
         val path = android.net.Uri.parse(url).path ?: return
+        _onLogin.value = path == "/login"
         if (path != "/login" || loggedOut || g.auth.connected.value != true) return
         val now = System.currentTimeMillis()
         if (now - autoLoginAt < 60_000) return // once a minute at most: a refused code must not loop
@@ -286,6 +291,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             android.webkit.CookieManager.getInstance().removeAllCookies(null)
             android.webkit.WebStorage.getInstance().deleteAllData()
             _portal.value = null
+            _onLogin.value = false
             _crm.value = CrmState.Unknown
             _screen.value = Screen.Portal
         }
