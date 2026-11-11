@@ -7,7 +7,8 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 Батарею приложение не тратит: в фоне оно ничего не делает, его будит только пришедший push (общее соединение
 сервисов Google). Постоянного соединения нет.
 
-* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.2**).
+* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.3**). Главный экземпляр —
+  `crm-ashbyte/docs/contracts/ANDROID_CONTRACT.md` (там же все контракты CRM); здесь — его точная копия.
 * Что доработать в CRM — задание хранится вместе с CRM (закрытый репозиторий).
 * Firebase — [`docs/FIREBASE.md`](docs/FIREBASE.md).
 
@@ -52,7 +53,7 @@ make publish   # то же + релиз на GitHub (см. «Выпуск вер
 предлагают обновиться (`docs/ANDROID_CONTRACT.md` §2). Сборка и подпись — только на этом компьютере.
 
 1. `app/build.gradle.kts`: поднять `versionCode` (+1) и `versionName`. Менялся обмен с CRM — сначала
-   `docs/ANDROID_CONTRACT.md`, затем `CONTRACT`.
+   контракт в `crm-ashbyte/docs/contracts/`, его копия в `docs/ANDROID_CONTRACT.md`, затем `CONTRACT`.
 2. `release/notes.txt` — «Что нового», до 5 коротких строк (их видит сотрудник в предложении обновиться).
 3. `release/min_version_code` — поднять до нового `versionCode`, если старые версии **обязаны** обновиться
    (несовместимое изменение); иначе не трогать.
