@@ -2,7 +2,7 @@
 
 Единственный источник правды для обмена между CRM (`crm-ashbyte`) и приложением для Android
 (`crm-ashbyte-android`, пакет `ru.ashcrm.app`, далее — **приложение**). Одна и та же копия лежит в обоих репозиториях:
-`crm-ashbyte/docs/ANDROID_CONTRACT.md` и `crm-ashbyte-android/docs/ANDROID_CONTRACT.md`.
+`crm-ashbyte/docs/contracts/ANDROID_CONTRACT.md` и `crm-ashbyte-android/docs/ANDROID_CONTRACT.md`.
 
 Что для этого нужно сделать в CRM — задание в репозитории CRM.
 
