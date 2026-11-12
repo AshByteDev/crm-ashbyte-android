@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import ru.ashcrm.app.MainActivity
@@ -23,6 +24,8 @@ object Notifier {
     const val CH_CALLS = "calls"
     const val CH_WORK = "work"
     const val CH_SERVICE = "service"
+    const val CH_DELIVERY = "delivery"
+    const val CH_DELIVERY_ALERT = "delivery_alert"
 
     const val EXTRA_PATH = "path"
     const val ACTION_OPEN = "ru.ashcrm.app.OPEN"
@@ -33,7 +36,7 @@ object Notifier {
     val received: SharedFlow<Payload> = _received
 
     /** Keys the CRM can mark read by «Прочитано» (§5.1); the test card and unknown ones get no button. */
-    private val readable = listOf("chat-", "task-", "event-", "channel-", "queue-", "alert-", "missedcall-")
+    private val readable = listOf("chat-", "task-", "event-", "channel-", "queue-", "alert-", "missedcall-", "delivery-")
 
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -43,18 +46,29 @@ object Notifier {
             group = "crm"
             enableVibration(importance >= NotificationManager.IMPORTANCE_HIGH)
         }
+        // «Доставка» has its own sound (§5.1), so a driver tells it from a message without looking at the phone.
+        val sound = "android.resource://${ctx.packageName}/${R.raw.delivery}".toUri()
+        val attrs = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        fun delivery(id: String, name: String, importance: Int, desc: String) = ch(id, name, importance, desc).apply { setSound(sound, attrs) }
         nm.createNotificationChannels(
             listOf(
                 ch(CH_CLIENTS, "Клиенты и очередь", NotificationManager.IMPORTANCE_HIGH, "Сообщения клиентов, новые беседы в очереди, «никого нет на смене»"),
                 ch(CH_TEAM, "Сотрудники", NotificationManager.IMPORTANCE_HIGH, "Личные сообщения, группы, упоминания"),
                 ch(CH_CALLS, "Звонки", NotificationManager.IMPORTANCE_HIGH, "Звонит клиент, идёт разговор"),
                 ch(CH_WORK, "Задачи и встречи", NotificationManager.IMPORTANCE_DEFAULT, "Задачи, напоминания о встречах, документы на подпись"),
+                delivery(CH_DELIVERY, "Доставка", NotificationManager.IMPORTANCE_DEFAULT, "Заявки доставки: назначили, изменили, сообщения в чате заявки"),
+                delivery(CH_DELIVERY_ALERT, "Доставка — важное", NotificationManager.IMPORTANCE_HIGH, "Пинг диспетчера, «Не удалось», срок прошёл, срочная заявка, водитель снят"),
                 ch(CH_SERVICE, "Служебные", NotificationManager.IMPORTANCE_DEFAULT, "Проверка уведомлений, обновления приложения"),
             )
         )
     }
 
-    fun channelOf(type: String): String = when (type) {
+    /** `alert` counts only for `delivery` (§5.1); an unknown type goes with the messages of the team, as `dm`. */
+    fun channelOf(type: String, alert: Boolean = false): String = when (type) {
+        "delivery" -> if (alert) CH_DELIVERY_ALERT else CH_DELIVERY
         "mine", "queue", "alerts" -> CH_CLIENTS
         "call" -> CH_CALLS
         "tasks", "calendar", "policy" -> CH_WORK
@@ -78,7 +92,7 @@ object Notifier {
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val b = NotificationCompat.Builder(ctx, channelOf(p.type))
+        val b = NotificationCompat.Builder(ctx, channelOf(p.type, p.alert))
             .setSmallIcon(R.drawable.ic_notify)
             .setColor(ContextCompat.getColor(ctx, R.color.accent))
             .setContentTitle(p.title.ifEmpty { "AshCRM" })
@@ -96,7 +110,10 @@ object Notifier {
                     else -> NotificationCompat.CATEGORY_MESSAGE
                 }
             )
-            .setPriority(if (p.type in setOf("tasks", "calendar", "policy", "test")) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
+            .setPriority(
+                if (p.type in setOf("tasks", "calendar", "policy", "test") || (p.type == "delivery" && !p.alert)) NotificationCompat.PRIORITY_DEFAULT
+                else NotificationCompat.PRIORITY_HIGH
+            )
         if (readable.any { tag.startsWith(it) }) {
             val read = PendingIntent.getBroadcast(
                 ctx, tag.hashCode(),

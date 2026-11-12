@@ -48,6 +48,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.ui.AppModel
+import ru.ashcrm.app.web.Photos
 import ru.ashcrm.app.ui.AshTheme
 import ru.ashcrm.app.ui.NeedNotificationsScreen
 import ru.ashcrm.app.ui.PortalScreen
@@ -67,9 +68,27 @@ class MainActivity : ComponentActivity(), WebHost {
     private var pageColor by mutableStateOf<androidx.compose.ui.graphics.Color?>(null)
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var fileIntent: Intent? = null
     private val files = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        fileCallback?.onReceiveValue(picked(r.resultCode, r.data))
-        fileCallback = null
+        filesDone(picked(r.resultCode, r.data))
+    }
+
+    /** «Камера» or «Галерея и файлы» for an input of images (§7.3). */
+    private var photoChoice by mutableStateOf(false)
+    private var photo: java.io.File? = null
+    private val capture = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val f = photo
+        photo = null
+        if (ok && f != null && f.length() > 0) filesDone(arrayOf(Photos.uri(this, f)))
+        else { f?.delete(); filesDone(null) }
+    }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) shoot() else fileIntent?.let(::launchPicker) ?: filesDone(null)
+    }
+    private var locationCallback: ((Boolean) -> Unit)? = null
+    private val location = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+        locationCallback?.invoke(r.values.any { it })
+        locationCallback = null
     }
 
     /** With «several files» allowed the picker hands them in clipData, even one file; parseResult reads only data. */
@@ -221,6 +240,12 @@ class MainActivity : ComponentActivity(), WebHost {
                 confirmButton = { TextButton(onClick = { confirmPortal = false; model.changePortal() }) { Text("Сменить") } },
                 dismissButton = { TextButton(onClick = { confirmPortal = false }) { Text("Отмена") } },
             )
+            if (photoChoice) AlertDialog(
+                onDismissRequest = { photoChoice = false; filesDone(null) },
+                title = { Text("Приложить фото") },
+                confirmButton = { TextButton(onClick = { photoChoice = false; takePhoto() }) { Text("Камера") } },
+                dismissButton = { TextButton(onClick = { photoChoice = false; fileIntent?.let(::launchPicker) ?: filesDone(null) }) { Text("Галерея и файлы") } },
+            )
             // The QR scanner (§3.4) lies over everything; «Закрыть» leaves the page as it was.
             if (scan != null) ScannerScreen(hint = scanHint, onText = model::onScanned, onClose = model::closeScanner)
             // The address check failed and GitVerse has a newer app: offer it right on the address screen.
@@ -278,15 +303,53 @@ class MainActivity : ComponentActivity(), WebHost {
         recreate()
     }
 
-    override fun pickFiles(intent: Intent, callback: ValueCallback<Array<Uri>>) {
+    override fun pickFiles(intent: Intent, callback: ValueCallback<Array<Uri>>, camera: Boolean, cameraOnly: Boolean) {
         fileCallback?.onReceiveValue(null)
         fileCallback = callback
+        fileIntent = intent
+        when {
+            !camera || !Photos.canShoot(this) -> launchPicker(intent)
+            cameraOnly -> takePhoto()
+            else -> photoChoice = true
+        }
+    }
+
+    private fun filesDone(result: Array<Uri>?) {
+        fileCallback?.onReceiveValue(result)
+        fileCallback = null
+        fileIntent = null
+    }
+
+    private fun launchPicker(intent: Intent) {
         try {
             files.launch(intent)
         } catch (_: Exception) {
-            fileCallback = null
-            callback.onReceiveValue(null)
+            filesDone(null)
         }
+    }
+
+    /** CAMERA is asked right when «Камера» is chosen; refused — the picker of files, as before 1.5. */
+    private fun takePhoto() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) shoot()
+        else cameraPermission.launch(android.Manifest.permission.CAMERA)
+    }
+
+    private fun shoot() {
+        val f = Photos.newFile(this)
+        photo = f
+        try {
+            capture.launch(Photos.uri(this, f))
+        } catch (_: Exception) {
+            f.delete()
+            photo = null
+            fileIntent?.let(::launchPicker) ?: filesDone(null)
+        }
+    }
+
+    override fun requestLocation(onResult: (Boolean) -> Unit) {
+        locationCallback?.invoke(false)
+        locationCallback = onResult
+        location.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
     override fun requestAudio(onResult: (Boolean) -> Unit) {

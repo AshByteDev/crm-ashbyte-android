@@ -35,6 +35,7 @@ class App : Application() {
         // chrome://inspect on the computer sees the page of a debug build.
         if (BuildConfig.DEBUG) android.webkit.WebView.setWebContentsDebuggingEnabled(true)
         Notifier.createChannels(this)
+        ru.ashcrm.app.web.Photos.clear(this)
         graph.scope.launch { graph.auth.load() }
         ru.ashcrm.app.net.KeepAlive.schedule(this)
     }

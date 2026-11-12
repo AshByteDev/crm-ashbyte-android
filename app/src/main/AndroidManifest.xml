@@ -16,12 +16,21 @@
     <!-- The QR scanner of the login (docs/ANDROID_CONTRACT.md §3.4); a phone without a camera installs the app too. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- The place of a mark of «Доставка», asked only when the page asks (docs/ANDROID_CONTRACT.md §7.2); never in the background. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
     <!-- Package visibility: is Google Play services there (FCM) — Register.hasGoogle. -->
     <queries>
         <package android:name="com.google.android.gms" />
+        <!-- Is there a camera app for «Камера» in the picker of a photo (§7.3). -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
     </queries>
 
     <application
@@ -55,6 +64,14 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
 
         <receiver android:name=".push.ActionReceiver" android:exported="false" />
         <receiver android:name=".update.InstallReceiver" android:exported="false" />

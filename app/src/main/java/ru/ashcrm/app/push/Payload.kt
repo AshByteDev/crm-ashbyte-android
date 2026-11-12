@@ -11,4 +11,6 @@ data class Payload(
     val url: String = "",
     val tag: String = "",
     val clear: List<String> = emptyList(),
+    /** Since 1.5: a notice to see at once; only `delivery` has it now (§5.1). */
+    val alert: Boolean = false,
 )

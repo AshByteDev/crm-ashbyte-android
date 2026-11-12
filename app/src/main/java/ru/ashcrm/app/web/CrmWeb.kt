@@ -40,8 +40,14 @@ import java.util.Base64
 interface WebHost {
     fun onConnectCallback(uri: Uri)
     fun onBridge(type: String)
-    fun pickFiles(intent: Intent, callback: ValueCallback<Array<Uri>>)
+    /**
+     * An `<input type=file>`: [intent] is the picker of files; [camera] — the page takes images, so a photo from the
+     * camera goes too (§7.3); [cameraOnly] — the input has `capture`, the camera opens at once.
+     */
+    fun pickFiles(intent: Intent, callback: ValueCallback<Array<Uri>>, camera: Boolean, cameraOnly: Boolean)
     fun requestAudio(onResult: (Boolean) -> Unit)
+    /** The page asks where the phone is (§7.2): [onResult] gets true with at least the coarse location allowed. */
+    fun requestLocation(onResult: (Boolean) -> Unit)
     fun onMainFrameError(failed: Boolean)
     fun onPageFinished(url: String)
     /** The renderer died (out of memory, an update of WebView): this WebView is unusable and must be made again. */
@@ -71,6 +77,8 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
             allowContentAccess = false
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            // The driver of «Доставка» marks a point of the route with the place (§7.2); asked only at that moment.
+            setGeolocationEnabled(true)
             userAgentString = "$userAgentString $APP_AGENT"
         }
         CookieManager.getInstance().setAcceptCookie(true)
@@ -176,8 +184,18 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
 
     private inner class Chrome : WebChromeClient() {
         override fun onShowFileChooser(v: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-            host.pickFiles(pickIntent(params), callback)
+            val images = acceptTypes(params).any { it.startsWith("image/") }
+            host.pickFiles(pickIntent(params), callback, camera = images, cameraOnly = images && params.isCaptureEnabled)
             return true
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(origin: String, callback: android.webkit.GeolocationPermissions.Callback) {
+            // retain = false: WebView asks again next time, and the answer of Android stays the only one that counts.
+            if (!Portal.sameOrigin(portal, origin)) return callback.invoke(origin, false, false)
+            val fine = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarse = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (fine || coarse) callback.invoke(origin, true, false)
+            else host.requestLocation { ok -> callback.invoke(origin, ok, false) }
         }
 
         override fun onPermissionRequest(request: PermissionRequest) {
@@ -194,11 +212,13 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
      * The system picker for an `<input type=file>`. `accept` may hold extensions (".pdf,.docx"), which Android
      * does not take as a type: they turn into MIME types here, and what has no known type opens the picker for any file.
      */
+    private fun acceptTypes(params: WebChromeClient.FileChooserParams): List<String> = params.acceptTypes.orEmpty()
+        .flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        .map { if (it.startsWith('.')) android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) ?: "*/*" else it }
+        .distinct()
+
     private fun pickIntent(params: WebChromeClient.FileChooserParams): Intent {
-        val types = params.acceptTypes.orEmpty()
-            .flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-            .map { if (it.startsWith('.')) android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) ?: "*/*" else it }
-            .distinct()
+        val types = acceptTypes(params)
         return Intent(Intent.ACTION_GET_CONTENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             if (types.isEmpty() || "*/*" in types) type = "*/*"
@@ -212,7 +232,7 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
         try {
             ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: ActivityNotFoundException) {
-            toast("Нет приложения, чтобы открыть ссылку")
+            toast(if (uri.scheme == "yandexnavi") "Установите Яндекс Навигатор или откройте «Карты»" else "Нет приложения, чтобы открыть ссылку")
         }
     }
 

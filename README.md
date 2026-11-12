@@ -7,7 +7,7 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 Батарею приложение не тратит: в фоне оно ничего не делает, его будит только пришедший push (общее соединение
 сервисов Google). Постоянного соединения нет.
 
-* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.4**). Главный экземпляр —
+* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.5**). Главный экземпляр —
   `crm-ashbyte/docs/contracts/ANDROID_CONTRACT.md` (там же все контракты CRM); здесь — его точная копия.
 * Что доработать в CRM — задание хранится вместе с CRM (закрытый репозиторий).
 * Firebase — [`docs/FIREBASE.md`](docs/FIREBASE.md).
