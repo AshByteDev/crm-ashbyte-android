@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Voice messages in the page of the CRM. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- The QR scanner of the login (docs/ANDROID_CONTRACT.md §3.4); a phone without a camera installs the app too. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 

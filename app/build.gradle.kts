@@ -23,13 +23,14 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 7
-        versionName = "0.4.3"
+        versionCode = 8
+        versionName = "0.5.0"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
-        buildConfigField("String", "CONTRACT", "\"1.3\"")
-        // Versions and the APK come from the releases of this repository (README → «Выпуск версии»).
-        buildConfigField("String", "UPDATE_MANIFEST", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/latest/download/android.json\"")
-        buildConfigField("String", "RELEASES_PREFIX", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/download/\"")
+        buildConfigField("String", "CONTRACT", "\"1.4\"")
+        // Versions and the APK come from GitVerse (README → «Выпуск версии»). Its API is closed even for reading a public
+        // repository: release/android.json is read as a file of the branch main; it points at the APK of a release.
+        buildConfigField("String", "UPDATE_MANIFEST", "\"https://gitverse.ru/api/repos/AshByte/crm-ashbyte-android/raw/branch/main/release/android.json\"")
+        buildConfigField("String", "RELEASES_PREFIX", "\"https://gitverse.ru/api/attachments/\"")
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebase.toString())
     }
 
@@ -96,6 +97,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    // The QR scanner (§3.4): CameraX + ZXing — no Google Play Services, phones without them exist.
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     testImplementation(libs.junit)

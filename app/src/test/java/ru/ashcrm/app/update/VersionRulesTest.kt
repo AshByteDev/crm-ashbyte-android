@@ -9,7 +9,7 @@ class VersionRulesTest {
     private fun release(code: Int, min: Int = 0) = Release(code, "0.$code.0", min, "00", 1,
         "https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.$code.0/ashcrm.apk")
 
-    @Test fun noAnswerOfGitHubChangesNothing() =
+    @Test fun noAnswerOfGitVerseChangesNothing() =
         assertEquals(UpdateDecision.None, VersionRules.decide(null, 5, null, CrmState.Supported))
 
     @Test fun sameOrOlderIsNothing() {
@@ -34,11 +34,13 @@ class VersionRulesTest {
         assertEquals(CrmState.Incompatible, VersionRules.crm("2.0", own = "1.2"))
     }
 
-    @Test fun onlyOurReleases() {
-        assertTrue(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.3.0/ashcrm.apk"))
-        assertFalse(Updater.releaseUrlOk("https://github.com/someone/else/releases/download/v1/ashcrm.apk"))
-        assertFalse(Updater.releaseUrlOk("http://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.3.0/ashcrm.apk"))
-        assertFalse(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/../../x/ashcrm.apk"))
-        assertFalse(Updater.releaseUrlOk("https://evil.example/ashcrm.apk"))
+    @Test fun onlyFilesOfReleasesOnGitVerse() {
+        val p = "https://gitverse.ru/api/attachments/"
+        assertTrue(Updater.releaseUrlOk("${p}c344d2da-b0bd-4568-acd1-10786a99a095", p))
+        assertFalse(Updater.releaseUrlOk("http://gitverse.ru/api/attachments/c344d2da-b0bd-4568-acd1-10786a99a095", p))
+        assertFalse(Updater.releaseUrlOk("${p}c344d2da-b0bd-4568-acd1-10786a99a095/../x", p))
+        assertFalse(Updater.releaseUrlOk("${p}../repos/x", p))
+        assertFalse(Updater.releaseUrlOk("https://gitverse.ru.evil.example/api/attachments/c344d2da-b0bd-4568-acd1-10786a99a095", p))
+        assertFalse(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.4.3/ashcrm.apk", p))
     }
 }

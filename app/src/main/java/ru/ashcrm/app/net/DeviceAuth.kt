@@ -43,7 +43,8 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
         }
         pending = p
         fun q(s: String) = URLEncoder.encode(s, "UTF-8")
-        return "$portal/desktop-connect?app=android&challenge=${p.challenge}&state=${p.state}&device=${q(deviceName())}"
+        // auto=1 (§3, 1.4): the page goes on without «Подключить?»; a CRM 1.3 does not know it and asks as before.
+        return "$portal/desktop-connect?app=android&auto=1&challenge=${p.challenge}&state=${p.state}&device=${q(deviceName())}"
     }
 
     /** True when [state] is the one of the attempt under way (compared in constant time). */

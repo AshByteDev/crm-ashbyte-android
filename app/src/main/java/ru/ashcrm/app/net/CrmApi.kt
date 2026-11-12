@@ -35,7 +35,7 @@ data class DeviceTokens(
 @Serializable
 data class Me(@SerialName("display_name") val displayName: String = "", @SerialName("tenant_name") val tenantName: String = "")
 
-/** GET /app/android of the CRM: only the contract matters since the app updates from GitHub (§2). */
+/** GET /app/android of the CRM: only the contract matters since the app updates from GitVerse (§2). */
 @Serializable
 data class AppInfo(val contract: String)
 

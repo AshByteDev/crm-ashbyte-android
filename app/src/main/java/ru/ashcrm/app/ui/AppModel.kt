@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import ru.ashcrm.app.data.Portal
+import ru.ashcrm.app.data.QrLogin
 import ru.ashcrm.app.data.Prefs
 import ru.ashcrm.app.graph
 import ru.ashcrm.app.net.HttpError
@@ -30,7 +31,17 @@ sealed interface Screen {
     data object Portal : Screen
     data object Web : Screen
     data class Settings(val firstRun: Boolean) : Screen
+    /** §3.5: connected, but Android shows nothing — the app tells it, it does not ask. */
+    data object NeedNotifications : Screen
     data class MustUpdate(val release: ru.ashcrm.app.update.Release) : Screen
+}
+
+/** Where the QR scanner was opened from (§3.4). */
+enum class ScanFrom {
+    /** The address screen: the code gives the portal. */
+    Portal,
+    /** The page of the CRM (bridge `scan`): only a code of the same portal. */
+    Page,
 }
 
 /** The state of the test notification on the settings screen. */
@@ -54,11 +65,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private val _crm = MutableStateFlow(CrmState.Unknown)
     val crm: StateFlow<CrmState> = _crm
 
-    /** What to offer about the version of the app (from GitHub). */
+    /** What to offer about the version of the app (from GitVerse). */
     private val _decision = MutableStateFlow<UpdateDecision>(UpdateDecision.None)
     val decision: StateFlow<UpdateDecision> = _decision
 
-    /** The CRM speaks another contract and GitHub has nothing newer: told once per start. */
+    /** The CRM speaks another contract and GitVerse has nothing newer: told once per start. */
     private val _warnIncompatible = MutableStateFlow(false)
 
     /** The login form of the CRM is open: the app shows its own «Сменить адрес CRM» under it. */
@@ -67,6 +78,23 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     val warnIncompatible: StateFlow<Boolean> = _warnIncompatible
 
     val supported get() = _crm.value == CrmState.Supported
+
+    /** The QR scanner is open (over everything) and from where; its hint under the frame. */
+    private val _scan = MutableStateFlow<ScanFrom?>(null)
+    val scan: StateFlow<ScanFrom?> = _scan
+    private val _scanHint = MutableStateFlow<String?>(null)
+    val scanHint: StateFlow<String?> = _scanHint
+
+    /** A login code from the address screen waits for «Подключиться к <хост>?». */
+    private val _qrPortal = MutableStateFlow<QrLogin?>(null)
+    val qrPortal: StateFlow<QrLogin?> = _qrPortal
+
+    /** «Позже» on the notifications screen: until the next start of the app. */
+    private var notificationsLater = false
+
+    /** The last path of the portal the page was on: after connecting, the page goes back there. */
+    private var lastPath: String? = null
+    private var returnPath: String? = null
 
     private val _test = MutableStateFlow<TestState>(TestState.Idle)
     val test: StateFlow<TestState> = _test
@@ -102,7 +130,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // ---- the portal ----
 
     /** Checks the address and saves it; returns a text for a person when it is not an AshCRM. */
-    suspend fun setPortal(input: String): String? {
+    suspend fun setPortal(input: String, openUrl: String? = null): String? {
         val p = Portal.normalize(input) ?: return "Введите адрес вида crm.company.ru (http:// — только для локальной сети)"
         val crm = try {
             g.updater.crm(p)
@@ -123,11 +151,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         g.prefs.set(Prefs.PORTAL, p)
         g.prefs.set(Prefs.CONNECT_SKIPPED, null)
         _portal.value = p
-        open(p)
+        open(p, openUrl)
         return null
     }
 
-    /** The address check failed: if GitHub has a newer app, the cause may be an old one — offer the update right here. */
+    /** The address check failed: if GitVerse has a newer app, the cause may be an old one — offer the update right here. */
     private suspend fun offerUpdateIfAny() {
         val r = g.updater.latest() ?: return
         if (r.versionCode > ru.ashcrm.app.BuildConfig.VERSION_CODE) _decision.value = UpdateDecision.Optional(r)
@@ -142,28 +170,28 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         false
     }
 
-    private suspend fun open(p: String) {
+    private suspend fun open(p: String, openUrl: String? = null) {
         val crm = runCatching { g.updater.crm(p) }.getOrDefault(CrmState.Unknown)
         _crm.value = crm
         _warnIncompatible.value = crm == CrmState.Incompatible
         val connected = g.auth.connected.filterNotNull().first()
         startUrl = when {
+            openUrl != null -> openUrl // the page /qr of a login code does the login; connecting follows the bridge `login`
             supported && !connected && g.prefs.get(Prefs.CONNECT_SKIPPED) != true -> g.auth.connectUrl(p)
             else -> pendingPath?.also { pendingPath = null } ?: "/"
         }
         _screen.value = when {
             pendingSettings -> Screen.Settings(firstRun = false).also { pendingSettings = false }
-            supported && connected && g.prefs.get(Prefs.SETUP_DONE) != true -> Screen.Settings(firstRun = true)
-            else -> Screen.Web
+            else -> afterConnectScreen(connected)
         }
         // No answer of the CRM at the start (no network): the WebView shows its error, the CRM is asked again on resume.
         if (connected) Register.enqueue(getApplication())
-        checkUpdate() // GitHub may be slow or closed: never in the way of the start
+        checkUpdate() // GitVerse may be slow or closed: never in the way of the start
     }
 
     private var updateJob: kotlinx.coroutines.Job? = null
 
-    /** The latest release on GitHub; nothing happens when GitHub does not answer (owner: silently, next time). */
+    /** The latest release on GitVerse; nothing happens when GitVerse does not answer (owner: silently, next time). */
     private fun checkUpdate() {
         if (updateJob?.isActive == true) return
         updateJob = viewModelScope.launch {
@@ -174,8 +202,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Every return to the app: the CRM again while it did not answer or knew nothing; GitHub at most every 6 hours. */
+    /** Every return to the app: the CRM again while it did not answer or knew nothing; GitVerse at most every 6 hours. */
     fun onResume() {
+        // Turned on in the system settings: the screen of §3.5 goes away by itself.
+        if (_screen.value == Screen.NeedNotifications && notificationsAllowed(getApplication())) notificationsDone(later = false)
         val p = _portal.value ?: return
         viewModelScope.launch {
             if (_crm.value == CrmState.Unknown || _crm.value == CrmState.Unsupported) {
@@ -218,13 +248,28 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     _message.emit("Не удалось подключить уведомления: ${e.message ?: "попробуйте ещё раз"}")
                 }
             }
-            _navigate.emit("/")
-            if (g.prefs.get(Prefs.SETUP_DONE) != true) _screen.value = Screen.Settings(firstRun = true)
+            _navigate.emit(returnPath ?: "/")
+            returnPath = null
+            _screen.value = afterConnectScreen(g.auth.connected.value == true)
         }
+    }
+
+    /** What follows the page once the phone is connected: §3.5 when Android shows nothing, then the first setup. */
+    private suspend fun afterConnectScreen(connected: Boolean): Screen = when {
+        supported && connected && !notificationsLater && !notificationsAllowed(getApplication()) -> Screen.NeedNotifications
+        supported && connected && g.prefs.get(Prefs.SETUP_DONE) != true -> Screen.Settings(firstRun = true)
+        else -> Screen.Web
+    }
+
+    /** The notifications screen is done: allowed, or «Позже» (until the next start). */
+    fun notificationsDone(later: Boolean) {
+        if (later) notificationsLater = true
+        viewModelScope.launch { _screen.value = afterConnectScreen(g.auth.connected.value == true).takeIf { it != Screen.NeedNotifications } ?: Screen.Web }
     }
 
     fun connect() {
         val p = _portal.value ?: return
+        returnPath = lastPath?.takeUnless { it == "/login" || it == "/qr" || it.startsWith("/desktop-connect") }
         _screen.value = Screen.Web
         viewModelScope.launch { _navigate.emit(g.auth.connectUrl(p)) }
     }
@@ -250,6 +295,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (!Portal.sameOrigin(p, url)) return
         val path = android.net.Uri.parse(url).path ?: return
         _onLogin.value = path == "/login"
+        lastPath = Portal.safePath(url.removePrefix(p))
         if (path != "/login" || loggedOut || g.auth.connected.value != true) return
         val now = System.currentTimeMillis()
         if (now - autoLoginAt < 60_000) return // once a minute at most: a refused code must not loop
@@ -269,6 +315,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun onBridge(type: String) {
         when (type) {
             "settings" -> openSettings()
+            "scan" -> openScanner(ScanFrom.Page)
             "logout" -> {
                 loggedOut = true
                 disconnect()
@@ -295,6 +342,49 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             _crm.value = CrmState.Unknown
             _screen.value = Screen.Portal
         }
+    }
+
+    // ---- the QR login (§3.4) ----
+
+    fun openScanner(from: ScanFrom) {
+        if (from == ScanFrom.Page && _portal.value == null) return
+        _scanHint.value = null
+        _scan.value = from
+    }
+
+    fun closeScanner() {
+        _scan.value = null
+        _scanHint.value = null
+    }
+
+    /** A text of a QR code: a login code opens, anything else leaves the scanner open with a hint. */
+    fun onScanned(text: String) {
+        val from = _scan.value ?: return
+        val qr = QrLogin.parse(text)
+        if (qr == null) {
+            _scanHint.value = "Это не код входа AshCRM"
+            return
+        }
+        when (from) {
+            ScanFrom.Portal -> {
+                closeScanner()
+                _qrPortal.value = qr
+            }
+            ScanFrom.Page -> {
+                val p = _portal.value ?: return closeScanner()
+                if (!Portal.sameOrigin(p, qr.portal)) {
+                    _scanHint.value = "Код другого портала: ${qr.host}"
+                    return
+                }
+                closeScanner()
+                _screen.value = Screen.Web
+                viewModelScope.launch { _navigate.emit(qr.url) }
+            }
+        }
+    }
+
+    fun dismissQrPortal() {
+        _qrPortal.value = null
     }
 
     // ---- settings ----

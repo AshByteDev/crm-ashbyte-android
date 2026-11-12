@@ -49,7 +49,9 @@ import kotlinx.coroutines.launch
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.ui.AppModel
 import ru.ashcrm.app.ui.AshTheme
+import ru.ashcrm.app.ui.NeedNotificationsScreen
 import ru.ashcrm.app.ui.PortalScreen
+import ru.ashcrm.app.ui.ScannerScreen
 import ru.ashcrm.app.ui.Screen
 import ru.ashcrm.app.ui.SettingsScreen
 import ru.ashcrm.app.ui.UpdateDialog
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity(), WebHost {
             override fun handleOnBackPressed() {
                 val w = web
                 when {
+                    model.scan.value != null -> model.closeScanner()
                     model.screen.value is Screen.Settings && (model.screen.value as Screen.Settings).firstRun.not() -> model.closeSettings()
                     w != null && model.screen.value == Screen.Web && w.view.canGoBack() -> w.view.goBack()
                     else -> moveTaskToBack(true) // keep the page alive: the next open is instant
@@ -169,6 +172,8 @@ class MainActivity : ComponentActivity(), WebHost {
         val decision by model.decision.collectAsState()
         val incompatible by model.warnIncompatible.collectAsState()
         val onLogin by model.onLogin.collectAsState()
+        val scan by model.scan.collectAsState()
+        val scanHint by model.scanHint.collectAsState()
         var confirmPortal by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
@@ -195,6 +200,7 @@ class MainActivity : ComponentActivity(), WebHost {
                 Screen.Portal -> PortalScreen(model)
                 is Screen.Settings -> SettingsScreen(model, s.firstRun)
                 is Screen.MustUpdate -> UpdateDialog(s.release, mandatory = true, onLater = {})
+                Screen.NeedNotifications -> NeedNotificationsScreen(model)
                 Screen.Web -> Unit
             }
             if (screen == Screen.Web) {
@@ -215,7 +221,9 @@ class MainActivity : ComponentActivity(), WebHost {
                 confirmButton = { TextButton(onClick = { confirmPortal = false; model.changePortal() }) { Text("Сменить") } },
                 dismissButton = { TextButton(onClick = { confirmPortal = false }) { Text("Отмена") } },
             )
-            // The address check failed and GitHub has a newer app: offer it right on the address screen.
+            // The QR scanner (§3.4) lies over everything; «Закрыть» leaves the page as it was.
+            if (scan != null) ScannerScreen(hint = scanHint, onText = model::onScanned, onClose = model::closeScanner)
+            // The address check failed and GitVerse has a newer app: offer it right on the address screen.
             if (screen == Screen.Portal) (decision as? UpdateDecision.Optional)?.let { d ->
                 UpdateDialog(d.release, mandatory = false, onLater = { scope.launch { model.declineUpdate() } })
             }

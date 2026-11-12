@@ -95,11 +95,14 @@ fun PortalScreen(model: AppModel) {
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    val check: () -> Unit = { scope.launch { error = model.setPortal(text); busy = false } }
+    // A login code (§3.4) gives the address and the page to open; a typed address opens the start page.
+    var openUrl by remember { mutableStateOf<String?>(null) }
+    val qr by model.qrPortal.collectAsState()
+    val check: () -> Unit = { scope.launch { error = model.setPortal(text, openUrl); busy = false } }
     val localNet = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) check() else { busy = false; error = "Без доступа к локальной сети приложение не увидит CRM по этому адресу" }
     }
-    val submit: () -> Unit = {
+    val go: () -> Unit = {
         if (!busy) {
             busy = true
             error = null
@@ -110,6 +113,23 @@ fun PortalScreen(model: AppModel) {
                 ) localNet.launch(LOCAL_NETWORK) else check()
             }
         }
+    }
+    val submit: () -> Unit = { openUrl = null; go() }
+    qr?.let { code ->
+        AlertDialog(
+            onDismissRequest = model::dismissQrPortal,
+            title = { Text("Подключиться к ${code.host}?") },
+            text = { Text("Вход подтвердите на компьютере, где показан QR-код.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    model.dismissQrPortal()
+                    text = code.portal
+                    openUrl = code.url
+                    go()
+                }) { Text("Подключиться") }
+            },
+            dismissButton = { TextButton(onClick = model::dismissQrPortal) { Text("Отмена") } },
+        )
     }
     Surface(Modifier.fillMaxSize()) {
         Column(
@@ -131,13 +151,55 @@ fun PortalScreen(model: AppModel) {
             Button(onClick = submit, enabled = text.isNotBlank() && !busy, modifier = Modifier.fillMaxWidth()) {
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Продолжить")
             }
+            OutlinedButton(onClick = { model.openScanner(ScanFrom.Portal) }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                Text("Вход по QR")
+            }
+            Text(
+                "На компьютере, где вы уже вошли в CRM: меню аватарки → «Вход по QR».",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------- notifications are needed (§3.5)
+
+@Composable
+fun NeedNotificationsScreen(model: AppModel) {
+    val ctx = LocalContext.current
+    var refused by remember { mutableStateOf(false) }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (notificationsAllowed(ctx)) model.notificationsDone(later = false) else refused = true
+    }
+    val openSettings = {
+        ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+    }
+    // Android 13+ asks with its own dialog while it may; before 13, or once it stops asking, only the settings help.
+    val canAsk = Build.VERSION.SDK_INT >= 33 &&
+        ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    Surface(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        ) {
+            Text("Для работы нужны уведомления", style = MaterialTheme.typography.headlineSmall)
+            Text("Без них вы не узнаете о новых сообщениях и клиентах, пока CRM закрыта.")
+            if (!refused) {
+                // Only the settings can help: back from them without turning on — «Открыть настройки» and «Позже».
+                Button(onClick = { if (canAsk) ask.launch(Manifest.permission.POST_NOTIFICATIONS) else { refused = true; openSettings() } }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Разрешить")
+                }
+            } else {
+                Button(onClick = openSettings, modifier = Modifier.fillMaxWidth()) { Text("Открыть настройки") }
+                OutlinedButton(onClick = { model.notificationsDone(later = true) }, modifier = Modifier.fillMaxWidth()) { Text("Позже") }
+            }
         }
     }
 }
 
 // ---------------------------------------------------------------- settings and the first run
 
-private fun notificationsAllowed(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled() &&
+internal fun notificationsAllowed(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled() &&
     (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
 private fun batteryFree(ctx: Context) = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
@@ -255,7 +317,7 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
                     scope.launch {
                         val release = g.updater.latest()
                         when {
-                            release == null -> android.widget.Toast.makeText(ctx, "Нет связи с GitHub — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
+                            release == null -> android.widget.Toast.makeText(ctx, "Нет связи с сервером обновлений — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
                             release.versionCode > BuildConfig.VERSION_CODE -> update = release
                             else -> android.widget.Toast.makeText(ctx, "Установлена последняя версия", android.widget.Toast.LENGTH_SHORT).show()
                         }
