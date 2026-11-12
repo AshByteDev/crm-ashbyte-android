@@ -23,8 +23,8 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.6.0"
+        versionCode = 10
+        versionName = "0.6.1"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
         buildConfigField("String", "CONTRACT", "\"1.5\"")
         // Versions and the APK come from GitVerse (README → «Выпуск версии»). Its API is closed even for reading a public

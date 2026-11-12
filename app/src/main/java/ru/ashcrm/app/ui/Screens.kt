@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.net.toUri
 import android.os.Build
-import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +32,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -50,6 +54,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -202,10 +209,48 @@ fun NeedNotificationsScreen(model: AppModel) {
 internal fun notificationsAllowed(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled() &&
     (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
-private fun batteryFree(ctx: Context) = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+@Composable
+fun SettingsScreen(model: AppModel, firstRun: Boolean, initialTab: SettingsTab = SettingsTab.Notifications) {
+    val ctx = LocalContext.current
+    var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab) }
+    var tick by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
+    val permsDot = remember(tick) { Perms.requiredMissing(ctx) }
+    val shown = if (firstRun) SettingsTab.Notifications else tab
+
+    Surface(Modifier.fillMaxSize()) {
+        Column(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (firstRun) "Настройка уведомлений" else "Настройки", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                if (!firstRun) TextButton(onClick = model::closeSettings) { Text("Закрыть") }
+            }
+            // The first run walks the steps of the notifications only; the tabs come after it.
+            if (!firstRun) PrimaryScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
+                SettingsTab.entries.forEach { t ->
+                    Tab(selected = tab == t, onClick = { tab = t }, text = {
+                        if (t == SettingsTab.Permissions && permsDot) BadgedBox(badge = { Badge() }) { Text(t.title, maxLines = 1) }
+                        else Text(t.title, maxLines = 1)
+                    })
+                }
+            }
+            key(shown) {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    when (shown) {
+                        SettingsTab.Notifications -> NotificationsTab(model, firstRun, tick) { tick++ }
+                        SettingsTab.Permissions -> PermissionsTab(tick) { tick++ }
+                        SettingsTab.About -> AboutTab(model)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
-fun SettingsScreen(model: AppModel, firstRun: Boolean) {
+private fun NotificationsTab(model: AppModel, firstRun: Boolean, tick: Int, onChanged: () -> Unit) {
     val ctx = LocalContext.current
     val g = ctx.graph
     val scope = rememberCoroutineScope()
@@ -213,124 +258,188 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
     val connected by model.connected.collectAsState()
     val crm by model.crm.collectAsState()
     val test by model.test.collectAsState()
-    val portal by model.portal.collectAsState()
-    var tick by remember { mutableIntStateOf(0) }
-    LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose { } }
-
-    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { tick++ }
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onChanged() }
     val notifOk = remember(tick) { notificationsAllowed(ctx) }
-    val batteryOk = remember(tick) { batteryFree(ctx) }
+    val batteryOk = remember(tick) { Perms.batteryFree(ctx) }
     val oem = remember { Oem.step() }
     val autostartOk = prefs?.get(Prefs.AUTOSTART_DONE) == true
     val supported = crm == CrmState.Supported
-    var confirmPortal by remember { mutableStateOf(false) }
     var confirmDisconnect by remember { mutableStateOf(false) }
-    var update by remember { mutableStateOf<Release?>(null) }
-    var checking by remember { mutableStateOf(false) }
 
-    Surface(Modifier.fillMaxSize()) {
-        Column(
-            Modifier.windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (firstRun) "Настройка уведомлений" else "Настройки приложения", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                if (!firstRun) TextButton(onClick = model::closeSettings) { Text("Закрыть") }
-            }
-            if (firstRun) Text("Чтобы уведомления приходили сразу, даже когда телефон заблокирован, пройдите шаги ниже. Это один раз.")
+    if (firstRun) Text("Чтобы уведомления приходили сразу, даже когда телефон заблокирован, пройдите шаги ниже. Это один раз.")
 
-            // --- connection
-            val regError = prefs?.get(Prefs.REGISTER_ERROR)
-            val (status, ok) = when {
-                crm == CrmState.Incompatible -> "Эта версия приложения не подходит к CRM — обновите приложение или обратитесь к администратору" to false
-                crm == CrmState.Unknown -> "Нет связи с CRM — проверим при следующем открытии" to false
-                crm == CrmState.Unsupported -> "CRM пока не поддерживает уведомления приложения. Работать в CRM можно, уведомления появятся после обновления CRM." to false
-                !BuildConfig.HAS_FIREBASE -> "Эта сборка без Firebase: уведомления недоступны" to false
-                connected != true -> "Уведомления не подключены к этому телефону" to false
-                regError != null -> regError to false
-                prefs?.get(Prefs.ENDPOINT) == null -> "Регистрируем телефон в CRM…" to false
-                else -> "Подключено: ${prefs?.get(Prefs.USER_NAME).orEmpty()}${prefs?.get(Prefs.TENANT_NAME)?.let { " · $it" }.orEmpty()}" to true
-            }
-            Step(title = "Подключение к CRM", text = status, ok = ok) {
-                if (supported && connected != true) Button(onClick = model::connect) { Text("Подключить") }
-            }
-            Step(
-                title = "Разрешение на уведомления",
-                text = if (notifOk) "Разрешено" else "Без него Android не покажет ни одного уведомления",
-                ok = notifOk,
-            ) {
-                if (!notifOk) Button(onClick = {
-                    if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                        notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    else ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
-                }) { Text("Разрешить") }
-            }
-            Step(
-                title = "Работа без ограничений батареи",
-                text = if (batteryOk) "Включено" else "Иначе система может задерживать уведомления. Заряд это почти не тратит: приложение не работает в фоне, его будит только пришедшее уведомление.",
-                ok = batteryOk,
-            ) {
-                if (!batteryOk) Button(onClick = {
-                    runCatching {
-                        @Suppress("BatteryLife")
-                        ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${ctx.packageName}".toUri()))
-                    }.onFailure { ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
-                }) { Text("Разрешить") }
-            }
-            if (oem != null) Step(title = oem.title, text = oem.hint, ok = autostartOk, unknown = !autostartOk) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { Oem.open(ctx, oem) }) { Text("Открыть") }
-                    OutlinedButton(onClick = { scope.launch { g.prefs.set(Prefs.AUTOSTART_DONE, !autostartOk) } }) {
-                        Text(if (autostartOk) "Не включено" else "Я включил")
-                    }
-                }
-            }
-            Step(
-                title = "Проверка",
-                text = when (val t = test) {
-                    TestState.Idle -> "Отправим тестовое уведомление через CRM на все ваши устройства"
-                    TestState.Sending -> "Ждём уведомление…"
-                    TestState.Arrived -> "Уведомление пришло — всё работает"
-                    is TestState.Failed -> t.why
-                },
-                ok = test == TestState.Arrived,
-                unknown = test == TestState.Idle || test == TestState.Sending,
-            ) {
-                Button(onClick = model::sendTest, enabled = connected == true && notifOk && test != TestState.Sending) { Text("Проверить") }
-            }
-
-            if (firstRun) {
-                Button(onClick = model::closeSettings, modifier = Modifier.fillMaxWidth()) { Text("Готово") }
-                Text("Вернуться сюда можно позже: долгое нажатие на иконку AshCRM → «Настройки уведомлений».", style = MaterialTheme.typography.bodySmall)
-            }
-
-            HorizontalDivider()
-            TextButton(onClick = {
-                ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
-            }) { Text("Звуки и виды уведомлений") }
-            Text("CRM: ${portal.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
-            Text("Версия ${BuildConfig.VERSION_NAME} · контракт ${BuildConfig.CONTRACT}", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(enabled = !checking, onClick = {
-                    val p = portal ?: return@OutlinedButton
-                    checking = true
-                    scope.launch {
-                        val release = g.updater.latest()
-                        when {
-                            release == null -> android.widget.Toast.makeText(ctx, "Нет связи с сервером обновлений — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
-                            release.versionCode > BuildConfig.VERSION_CODE -> update = release
-                            else -> android.widget.Toast.makeText(ctx, "Установлена последняя версия", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        checking = false
-                    }
-                }) { Text("Проверить обновления") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (connected == true) OutlinedButton(onClick = { confirmDisconnect = true }) { Text("Отключить уведомления") }
-                OutlinedButton(onClick = { confirmPortal = true }) { Text("Сменить адрес CRM") }
+    // --- connection
+    val regError = prefs?.get(Prefs.REGISTER_ERROR)
+    val (status, ok) = when {
+        crm == CrmState.Incompatible -> "Эта версия приложения не подходит к CRM — обновите приложение или обратитесь к администратору" to false
+        crm == CrmState.Unknown -> "Нет связи с CRM — проверим при следующем открытии" to false
+        crm == CrmState.Unsupported -> "CRM пока не поддерживает уведомления приложения. Работать в CRM можно, уведомления появятся после обновления CRM." to false
+        !BuildConfig.HAS_FIREBASE -> "Эта сборка без Firebase: уведомления недоступны" to false
+        connected != true -> "Уведомления не подключены к этому телефону" to false
+        regError != null -> regError to false
+        prefs?.get(Prefs.ENDPOINT) == null -> "Регистрируем телефон в CRM…" to false
+        else -> "Подключено: ${prefs?.get(Prefs.USER_NAME).orEmpty()}${prefs?.get(Prefs.TENANT_NAME)?.let { " · $it" }.orEmpty()}" to true
+    }
+    Step(title = "Подключение к CRM", text = status, ok = ok) {
+        if (supported && connected != true) Button(onClick = model::connect) { Text("Подключить") }
+    }
+    Step(
+        title = "Разрешение на уведомления",
+        text = if (notifOk) "Разрешено" else "Без него Android не покажет ни одного уведомления",
+        ok = notifOk,
+    ) {
+        if (!notifOk) Button(onClick = {
+            if (Build.VERSION.SDK_INT >= 33 && !Perms.granted(ctx, Manifest.permission.POST_NOTIFICATIONS))
+                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            else openNotificationSettings(ctx)
+        }) { Text("Разрешить") }
+    }
+    Step(
+        title = "Работа без ограничений батареи",
+        text = if (batteryOk) "Включено" else "Иначе система может задерживать уведомления. Заряд это почти не тратит: приложение не работает в фоне, его будит только пришедшее уведомление.",
+        ok = batteryOk,
+    ) {
+        if (!batteryOk) Button(onClick = { askBattery(ctx) }) { Text("Разрешить") }
+    }
+    if (oem != null) Step(title = oem.title, text = oem.hint, ok = autostartOk, unknown = !autostartOk) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { Oem.open(ctx, oem) }) { Text("Открыть") }
+            OutlinedButton(onClick = { scope.launch { g.prefs.set(Prefs.AUTOSTART_DONE, !autostartOk) } }) {
+                Text(if (autostartOk) "Не включено" else "Я включил")
             }
         }
     }
+    Step(
+        title = "Проверка",
+        text = when (val t = test) {
+            TestState.Idle -> "Отправим тестовое уведомление через CRM на все ваши устройства"
+            TestState.Sending -> "Ждём уведомление…"
+            TestState.Arrived -> "Уведомление пришло — всё работает"
+            is TestState.Failed -> t.why
+        },
+        ok = test == TestState.Arrived,
+        unknown = test == TestState.Idle || test == TestState.Sending,
+    ) {
+        Button(onClick = model::sendTest, enabled = connected == true && notifOk && test != TestState.Sending) { Text("Проверить") }
+    }
+
+    if (firstRun) {
+        Button(onClick = model::closeSettings, modifier = Modifier.fillMaxWidth()) { Text("Готово") }
+        Text("Вернуться сюда можно позже: долгое нажатие на иконку AshCRM → «Настройки уведомлений».", style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    HorizontalDivider()
+    TextButton(onClick = { openNotificationSettings(ctx) }) { Text("Звуки и виды уведомлений") }
+    if (connected == true) OutlinedButton(onClick = { confirmDisconnect = true }) { Text("Отключить уведомления") }
+
+    if (confirmDisconnect) AlertDialog(
+        onDismissRequest = { confirmDisconnect = false },
+        title = { Text("Отключить уведомления?") },
+        text = { Text("Телефон перестанет получать уведомления CRM. Работать в CRM можно будет как раньше.") },
+        confirmButton = { TextButton(onClick = { confirmDisconnect = false; model.disconnect() }) { Text("Отключить") } },
+        dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Отмена") } },
+    )
+}
+
+/**
+ * Everything Android gave the app, for every employee: the required ones (notifications, battery) are orange when
+ * missing, the ones of a task (camera, place, microphone) are grey — an office worker needs no place, it is no fault.
+ * The app still asks for those only when they are needed; here a person sees them and may give them in advance.
+ */
+@Composable
+private fun PermissionsTab(tick: Int, onChanged: () -> Unit) {
+    val ctx = LocalContext.current
+    var askedAt by remember { mutableLongStateOf(0L) }
+    var fallback by remember { mutableStateOf<() -> Unit>({}) }
+    // Refused for good («Больше не спрашивать»): Android shows no window and answers at once — open its settings then.
+    fun answered(ok: Boolean) {
+        if (!ok && SystemClock.elapsedRealtime() - askedAt < 500) fallback()
+        onChanged()
+    }
+    val one = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { answered(it) }
+    val many = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        answered(Perms.location(ctx) == Perms.Location.Fine)
+    }
+    fun ask(perm: String, otherwise: () -> Unit = { Perms.openAppDetails(ctx) }) {
+        askedAt = SystemClock.elapsedRealtime(); fallback = otherwise; one.launch(perm)
+    }
+
+    val notifOk = remember(tick) { notificationsAllowed(ctx) }
+    val batteryOk = remember(tick) { Perms.batteryFree(ctx) }
+    val place = remember(tick) { Perms.location(ctx) }
+    val camera = remember(tick) { Perms.granted(ctx, Manifest.permission.CAMERA) }
+    val mic = remember(tick) { Perms.granted(ctx, Manifest.permission.RECORD_AUDIO) }
+    val install = remember(tick) { Perms.canInstall(ctx) }
+
+    Text(
+        "Что AshCRM разрешено на этом телефоне. Камеру, местоположение и микрофон приложение спросит само, когда они понадобятся.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Step("Уведомления", if (notifOk) "Разрешено" else "Нужно всем: без них не придёт ни одно уведомление CRM", ok = notifOk) {
+        if (!notifOk) Button(onClick = {
+            if (Build.VERSION.SDK_INT >= 33 && !Perms.granted(ctx, Manifest.permission.POST_NOTIFICATIONS))
+                ask(Manifest.permission.POST_NOTIFICATIONS) { openNotificationSettings(ctx) }
+            else openNotificationSettings(ctx)
+        }) { Text("Разрешить") }
+    }
+    Step("Работа в фоне", if (batteryOk) "Без ограничений батареи" else "Нужно всем: иначе Android задерживает уведомления", ok = batteryOk) {
+        if (!batteryOk) Button(onClick = { askBattery(ctx) }) { Text("Разрешить") }
+    }
+    Step(
+        "Местоположение",
+        when (place) {
+            Perms.Location.Fine -> "Точное — разрешено. Берётся только в момент отметки, не в фоне"
+            Perms.Location.Coarse -> "Только приблизительное: место отметки «Доставки» будет неточным. Включите «Точное местоположение»"
+            Perms.Location.None -> "Для отметок «Доставки»: где нажали «Выполнено». Только в момент отметки, не в фоне"
+        },
+        ok = place == Perms.Location.Fine,
+        unknown = place == Perms.Location.None,
+    ) {
+        if (place != Perms.Location.Fine) Button(onClick = {
+            askedAt = SystemClock.elapsedRealtime(); fallback = { Perms.openAppDetails(ctx) }
+            many.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }) { Text(if (place == Perms.Location.Coarse) "Разрешить точное" else "Разрешить") }
+    }
+    Step("Камера", if (camera) "Разрешено" else "Для фото к отметкам «Доставки» и входа по QR-коду", ok = camera, unknown = !camera) {
+        if (!camera) Button(onClick = { ask(Manifest.permission.CAMERA) }) { Text("Разрешить") }
+    }
+    Step("Микрофон", if (mic) "Разрешено" else "Для голосовых сообщений", ok = mic, unknown = !mic) {
+        if (!mic) Button(onClick = { ask(Manifest.permission.RECORD_AUDIO) }) { Text("Разрешить") }
+    }
+    Step("Установка обновлений", if (install) "Разрешено" else "Для обновлений AshCRM. Android спросит сам при первом обновлении", ok = install, unknown = !install) {
+        if (!install) Button(onClick = {
+            runCatching { ctx.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:${ctx.packageName}".toUri())) }
+        }) { Text("Разрешить") }
+    }
+    HorizontalDivider()
+    TextButton(onClick = { Perms.openAppDetails(ctx) }) { Text("Все разрешения в настройках Android") }
+}
+
+@Composable
+private fun AboutTab(model: AppModel) {
+    val ctx = LocalContext.current
+    val g = ctx.graph
+    val scope = rememberCoroutineScope()
+    val portal by model.portal.collectAsState()
+    var confirmPortal by remember { mutableStateOf(false) }
+    var update by remember { mutableStateOf<Release?>(null) }
+    var checking by remember { mutableStateOf(false) }
+
+    Text("CRM: ${portal.orEmpty()}", style = MaterialTheme.typography.bodyMedium)
+    Text("Версия ${BuildConfig.VERSION_NAME} · контракт ${BuildConfig.CONTRACT}", style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(enabled = !checking, onClick = {
+        checking = true
+        scope.launch {
+            val release = g.updater.latest()
+            when {
+                release == null -> android.widget.Toast.makeText(ctx, "Нет связи с сервером обновлений — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
+                release.versionCode > BuildConfig.VERSION_CODE -> update = release
+                else -> android.widget.Toast.makeText(ctx, "Установлена последняя версия", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            checking = false
+        }
+    }) { Text("Проверить обновления") }
+    OutlinedButton(onClick = { confirmPortal = true }) { Text("Сменить адрес CRM") }
 
     if (confirmPortal) AlertDialog(
         onDismissRequest = { confirmPortal = false },
@@ -339,14 +448,17 @@ fun SettingsScreen(model: AppModel, firstRun: Boolean) {
         confirmButton = { TextButton(onClick = { confirmPortal = false; model.changePortal() }) { Text("Сменить") } },
         dismissButton = { TextButton(onClick = { confirmPortal = false }) { Text("Отмена") } },
     )
-    if (confirmDisconnect) AlertDialog(
-        onDismissRequest = { confirmDisconnect = false },
-        title = { Text("Отключить уведомления?") },
-        text = { Text("Телефон перестанет получать уведомления CRM. Работать в CRM можно будет как раньше.") },
-        confirmButton = { TextButton(onClick = { confirmDisconnect = false; model.disconnect() }) { Text("Отключить") } },
-        dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Отмена") } },
-    )
     update?.let { r -> UpdateDialog(r, mandatory = false, onLater = { update = null }) }
+}
+
+private fun openNotificationSettings(ctx: Context) =
+    ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+
+private fun askBattery(ctx: Context) {
+    runCatching {
+        @Suppress("BatteryLife")
+        ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, "package:${ctx.packageName}".toUri()))
+    }.onFailure { ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
 }
 
 @Composable

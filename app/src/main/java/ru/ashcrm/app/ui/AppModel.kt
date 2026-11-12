@@ -30,7 +30,7 @@ sealed interface Screen {
     data object Loading : Screen
     data object Portal : Screen
     data object Web : Screen
-    data class Settings(val firstRun: Boolean) : Screen
+    data class Settings(val firstRun: Boolean, val tab: SettingsTab = SettingsTab.Notifications) : Screen
     /** §3.5: connected, but Android shows nothing — the app tells it, it does not ask. */
     data object NeedNotifications : Screen
     data class MustUpdate(val release: ru.ashcrm.app.update.Release) : Screen
@@ -116,7 +116,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var pendingPath: String? = null
 
     /** The shortcut «Настройки уведомлений» was used before the portal was read. */
-    var pendingSettings = false
+    var pendingSettings: SettingsTab? = null
 
     init {
         viewModelScope.launch {
@@ -181,7 +181,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             else -> pendingPath?.also { pendingPath = null } ?: "/"
         }
         _screen.value = when {
-            pendingSettings -> Screen.Settings(firstRun = false).also { pendingSettings = false }
+            pendingSettings != null -> Screen.Settings(firstRun = false, tab = pendingSettings!!).also { pendingSettings = null }
             else -> afterConnectScreen(connected)
         }
         // No answer of the CRM at the start (no network): the WebView shows its error, the CRM is asked again on resume.
@@ -314,7 +314,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** A message of the page (§7.1). */
     fun onBridge(type: String) {
         when (type) {
-            "settings" -> openSettings()
+            "settings" -> openSettings(fromPage = true)
             "scan" -> openScanner(ScanFrom.Page)
             "logout" -> {
                 loggedOut = true
@@ -389,9 +389,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     // ---- settings ----
 
-    fun openSettings() {
-        if (_screen.value == Screen.Loading) pendingSettings = true
-        if (_portal.value != null && _screen.value !is Screen.MustUpdate) _screen.value = Screen.Settings(firstRun = false)
+    /**
+     * [fromPage]: the page sends here when it lacks something (the place of a mark of «Доставка», §7.2) — then the
+     * tab «Разрешения» opens if anything there is not given; a phone without notifications connected sees them first.
+     */
+    fun openSettings(fromPage: Boolean = false) {
+        val tab = if (fromPage && connected.value == true && Perms.anyMissing(getApplication())) SettingsTab.Permissions else SettingsTab.Notifications
+        if (_screen.value == Screen.Loading) pendingSettings = tab
+        if (_portal.value != null && _screen.value !is Screen.MustUpdate) _screen.value = Screen.Settings(firstRun = false, tab = tab)
     }
 
     fun closeSettings() {

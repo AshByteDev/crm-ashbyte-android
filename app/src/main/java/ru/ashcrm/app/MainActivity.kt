@@ -217,7 +217,7 @@ class MainActivity : ComponentActivity(), WebHost {
             when (val s = screen) {
                 Screen.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 Screen.Portal -> PortalScreen(model)
-                is Screen.Settings -> SettingsScreen(model, s.firstRun)
+                is Screen.Settings -> SettingsScreen(model, s.firstRun, s.tab)
                 is Screen.MustUpdate -> UpdateDialog(s.release, mandatory = true, onLater = {})
                 Screen.NeedNotifications -> NeedNotificationsScreen(model)
                 Screen.Web -> Unit
