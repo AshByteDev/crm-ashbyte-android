@@ -10,8 +10,9 @@ import ru.ashcrm.app.graph
 /** «Прочитано» in a notification: the card goes away at once, the CRM marks it read on every device (§3.1). */
 class ActionReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action != ACTION_READ) return
         val key = intent.getStringExtra(EXTRA_KEY) ?: return
+        if (intent.action == ACTION_GONE) return Notifier.gone(ctx, key)
+        if (intent.action != ACTION_READ) return
         Notifier.clear(ctx, listOf(key))
         val g = ctx.graph
         val done = goAsync()
@@ -30,6 +31,8 @@ class ActionReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_READ = "ru.ashcrm.app.READ"
+        /** The card was swiped away: only the summary of the group changes (§5.2). */
+        const val ACTION_GONE = "ru.ashcrm.app.GONE"
         const val EXTRA_KEY = "key"
     }
 }

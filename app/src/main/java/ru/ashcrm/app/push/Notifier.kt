@@ -1,6 +1,7 @@
 package ru.ashcrm.app.push
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
@@ -8,6 +9,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.graphics.Typeface
+import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -28,8 +36,15 @@ object Notifier {
     const val CH_DELIVERY_ALERT = "delivery_alert"
 
     const val EXTRA_PATH = "path"
+    const val EXTRA_TAG = "tag"
     const val ACTION_OPEN = "ru.ashcrm.app.OPEN"
     private const val ID = 1
+
+    /** All cards of the CRM are one group; its summary counts them by category (§5.2). */
+    private const val GROUP = "crm"
+    private const val SUMMARY = "summary"
+    private const val EXTRA_CATEGORY = "ru.ashcrm.app.category"
+    private const val SUMMARY_ROWS = 7
 
     private val _received = MutableSharedFlow<Payload>(extraBufferCapacity = 8)
     /** Every push that came: the settings screen waits for its test here. */
@@ -88,13 +103,14 @@ object Notifier {
         val tag = p.tag.ifEmpty { "n-${System.nanoTime()}" }
         val open = PendingIntent.getActivity(
             ctx, tag.hashCode(),
-            Intent(ctx, MainActivity::class.java).setAction(ACTION_OPEN).putExtra(EXTRA_PATH, p.url)
+            Intent(ctx, MainActivity::class.java).setAction(ACTION_OPEN).putExtra(EXTRA_PATH, p.url).putExtra(EXTRA_TAG, tag)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val cat = Category.of(p.category)
         val b = NotificationCompat.Builder(ctx, channelOf(p.type, p.alert))
-            .setSmallIcon(R.drawable.ic_notify)
-            .setColor(ContextCompat.getColor(ctx, R.color.accent))
+            .setSmallIcon(cat?.icon ?: R.drawable.ic_notify)
+            .setColor(cat?.color ?: ContextCompat.getColor(ctx, R.color.accent))
             .setContentTitle(p.title.ifEmpty { "AshCRM" })
             .setContentText(p.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(p.body))
@@ -114,6 +130,20 @@ object Notifier {
                 if (p.type in setOf("tasks", "calendar", "policy", "test") || (p.type == "delivery" && !p.alert)) NotificationCompat.PRIORITY_DEFAULT
                 else NotificationCompat.PRIORITY_HIGH
             )
+        cat?.let { b.setLargeIcon(BitmapFactory.decodeResource(ctx.resources, it.large)) }
+        // Notices of the app itself (a test, an update) stay apart from the cards of the CRM.
+        val grouped = p.type != "test"
+        if (grouped) {
+            b.setGroup(GROUP)
+            b.addExtras(Bundle().apply { putString(EXTRA_CATEGORY, p.category) })
+            b.setDeleteIntent(
+                PendingIntent.getBroadcast(
+                    ctx, tag.hashCode(),
+                    Intent(ctx, ActionReceiver::class.java).setAction(ActionReceiver.ACTION_GONE).putExtra(ActionReceiver.EXTRA_KEY, tag),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+            )
+        }
         if (readable.any { tag.startsWith(it) }) {
             val read = PendingIntent.getBroadcast(
                 ctx, tag.hashCode(),
@@ -122,12 +152,82 @@ object Notifier {
             )
             b.addAction(0, "Прочитано", read)
         }
-        runCatching { NotificationManagerCompat.from(ctx).notify(tag, ID, b.build()) }
+        val n = b.build()
+        runCatching { NotificationManagerCompat.from(ctx).notify(tag, ID, n) }
+        if (grouped) runCatching { summary(ctx, added = tag to n) }
     }
 
     fun clear(ctx: Context, keys: List<String>) {
         val nm = NotificationManagerCompat.from(ctx)
         keys.forEach { nm.cancel(it, ID) }
+        runCatching { summary(ctx, removed = keys.toSet()) }
+    }
+
+    /** A card went away by itself (swiped or tapped): the summary forgets it. */
+    fun gone(ctx: Context, key: String) {
+        runCatching { summary(ctx, removed = setOf(key)) }
+    }
+
+    /**
+     * The summary of the group: «5 уведомлений: 2 звонка, …» and a row per card with the dot of its category.
+     * The list of active notifications lags behind notify/cancel, so the card just posted or removed is passed in.
+     * Cancelling a summary cancels its children as well: it goes only when no card is left.
+     */
+    private fun summary(ctx: Context, added: Pair<String, Notification>? = null, removed: Set<String> = emptySet()) {
+        val all = ctx.getSystemService(NotificationManager::class.java).activeNotifications
+        val hasSummary = all.any { it.id == ID && it.tag == SUMMARY }
+        val cards = (all
+            .filter { it.id == ID && it.tag != SUMMARY && it.notification.group == GROUP && it.tag !in removed && it.tag != added?.first }
+            .sortedByDescending { it.postTime }
+            .map { it.notification }
+                ).let { rest -> listOfNotNull(added?.second) + rest }
+        val nm = NotificationManagerCompat.from(ctx)
+        if (cards.isEmpty()) {
+            if (hasSummary) nm.cancel(SUMMARY, ID)
+            return
+        }
+        if (cards.size < 2 && !hasSummary) return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            android.os.Build.VERSION.SDK_INT >= 33
+        ) return
+        val cats = cards.map { Category.of(it.extras.getString(EXTRA_CATEGORY)) }
+        val text = Category.summary(cats)
+        val style = NotificationCompat.InboxStyle().setBigContentTitle(text)
+        cards.zip(cats).take(SUMMARY_ROWS).forEach { (n, c) -> style.addLine(row(ctx, n, c)) }
+        if (cards.size > SUMMARY_ROWS) style.setSummaryText("ещё ${cards.size - SUMMARY_ROWS}")
+        val open = PendingIntent.getActivity(
+            ctx, SUMMARY.hashCode(),
+            Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        nm.notify(
+            SUMMARY, ID,
+            NotificationCompat.Builder(ctx, cards.first().channelId ?: CH_TEAM)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setColor(ContextCompat.getColor(ctx, R.color.accent))
+                .setContentTitle(text)
+                .setContentText(row(ctx, cards.first(), cats.first()))
+                // Android 12+ draws a collapsed group from the cards itself; the count by category goes to its header.
+                .setSubText(text.substringAfter(": ", ""))
+                .setStyle(style)
+                .setGroup(GROUP)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .setSilent(true)
+                .setContentIntent(open)
+                .build(),
+        )
+    }
+
+    /** «● Анна Лебедева  15:04 · ждал 12 с»: the dot in the color of the category, the title in bold. */
+    private fun row(ctx: Context, n: Notification, c: Category?): CharSequence {
+        val title = n.extras.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString().orEmpty()
+        val body = n.extras.getCharSequence(NotificationCompat.EXTRA_TEXT)?.toString().orEmpty()
+        return SpannableStringBuilder().apply {
+            append("● ", ForegroundColorSpan(c?.color ?: ContextCompat.getColor(ctx, R.color.accent)), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append(title, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (body.isNotEmpty()) append("  ").append(body)
+        }
     }
 
     /** A notice of the app itself (an update is ready, the device was disconnected). */

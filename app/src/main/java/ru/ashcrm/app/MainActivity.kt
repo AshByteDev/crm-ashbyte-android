@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity(), WebHost {
     private fun handle(intent: Intent?) {
         when (intent?.action) {
             Notifier.ACTION_OPEN -> {
+                intent.getStringExtra(Notifier.EXTRA_TAG)?.let { Notifier.gone(this, it) }
                 val path = PortalAddress.safePath(intent.getStringExtra(Notifier.EXTRA_PATH)) ?: return
                 model.showWeb()
                 web?.load(path) ?: run { model.pendingPath = path }
