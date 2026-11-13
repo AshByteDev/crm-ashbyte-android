@@ -19,6 +19,7 @@ import ru.ashcrm.app.data.QrLogin
 import ru.ashcrm.app.data.Prefs
 import ru.ashcrm.app.graph
 import ru.ashcrm.app.net.HttpError
+import ru.ashcrm.app.net.Reach
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.push.Register
 import ru.ashcrm.app.update.CrmState
@@ -327,6 +328,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    /** The page did not open: is it the internet of the phone or the CRM? */
+    suspend fun reach(): Reach = _portal.value?.let { Reach.check(getApplication(), g.api.http, it) } ?: Reach.NoInternet
 
     /** Changing the address forgets the device session of the old portal. */
     fun changePortal() {

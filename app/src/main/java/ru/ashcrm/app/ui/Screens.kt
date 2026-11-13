@@ -88,7 +88,8 @@ private val Warn = Color(0xFFD08A1B)
 
 @Composable
 fun AshTheme(content: @Composable () -> Unit) {
-    val scheme = if (isSystemInDarkTheme()) darkColorScheme(primary = Accent, secondary = Accent)
+    // The dark default of onPrimary is a dark purple: unreadable on the blue Accent.
+    val scheme = if (isSystemInDarkTheme()) darkColorScheme(primary = Accent, secondary = Accent, onPrimary = Color.White, onSecondary = Color.White)
     else lightColorScheme(primary = Accent, secondary = Accent)
     MaterialTheme(colorScheme = scheme, content = content)
 }

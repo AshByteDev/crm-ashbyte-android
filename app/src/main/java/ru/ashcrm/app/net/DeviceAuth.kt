@@ -94,13 +94,30 @@ class DeviceAuth(private val prefs: Prefs, private val box: SecureBox, private v
         accessUntil = Instant.EPOCH
     }
 
-    /** «Отключить уведомления»: ends the session in the CRM when reachable and forgets the keys anyway. */
+    /**
+     * «Отключить уведомления»: forgets the keys at once, then ends the session in the CRM when reachable. The CRM may
+     * not answer for a minute; a new connection made meanwhile must not be wiped by a late [forget].
+     */
     suspend fun disconnect(portal: String?, beforeLogout: suspend (String) -> Unit = {}) {
-        if (portal != null) runCatching {
-            accessToken(portal)?.let { beforeLogout(it); api.logout(portal, it) }
+        val old = mutex.withLock {
+            val valid = access?.takeIf { Instant.now().isBefore(accessUntil.minusSeconds(60)) }
+            val refresh = if (valid == null) box.open(prefs.get(Prefs.REFRESH))?.let { String(it) } else null
+            // Signed before forget(): the key of the phone goes with it.
+            val ts = Instant.now().epochSecond
+            val signed = refresh?.let { Signed(it, key.publicKey(), ts, key.sign(it, ts)) }
+            forget()
+            valid to signed
         }
-        mutex.withLock { forget() }
+        if (portal == null) return
+        runCatching {
+            val (valid, signed) = old
+            val access = valid ?: signed?.let { api.refresh(portal, it.refresh, it.publicKey, it.ts, it.sig).access } ?: return
+            beforeLogout(access)
+            api.logout(portal, access)
+        }
     }
+
+    private class Signed(val refresh: String, val publicKey: String?, val ts: Long, val sig: String?)
 
     private suspend fun save(t: DeviceTokens) {
         prefs.set(Prefs.REFRESH, box.seal(t.refresh.toByteArray()))

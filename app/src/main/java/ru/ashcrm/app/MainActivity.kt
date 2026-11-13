@@ -1,6 +1,8 @@
 package ru.ashcrm.app
 
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.ValueCallback
@@ -11,15 +13,29 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -39,6 +55,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.pm.ShortcutInfoCompat
@@ -46,6 +65,7 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import ru.ashcrm.app.net.Reach
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.ui.AppModel
 import ru.ashcrm.app.web.Photos
@@ -65,6 +85,9 @@ class MainActivity : ComponentActivity(), WebHost {
     private val model: AppModel by viewModels()
     private var web: CrmWeb? = null
     private var offline by mutableStateOf(false)
+    /** What «Проверить подключение» found; null — not checked since the page failed. */
+    private var offlineNote by mutableStateOf<String?>(null)
+    private var checking by mutableStateOf(false)
     private var pageColor by mutableStateOf<androidx.compose.ui.graphics.Color?>(null)
 
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -137,13 +160,22 @@ class MainActivity : ComponentActivity(), WebHost {
         }
     }
 
+    /** A network appeared while the page could not open: check at once instead of waiting for a tap. */
+    private val networkWatch = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            runOnUiThread { if (offline) checkConnection() }
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         web?.resume()
         window.decorView.postDelayed(flusher, 15_000)
+        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkWatch) }
     }
 
     override fun onStop() {
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkWatch) }
         window.decorView.removeCallbacks(flusher)
         web?.pause()
         super.onStop()
@@ -204,6 +236,8 @@ class MainActivity : ComponentActivity(), WebHost {
                 val w = remember(p) { CrmWeb(this@MainActivity, p, this@MainActivity).also { it.load(model.pendingPath?.also { model.pendingPath = null } ?: model.startUrl) } }
                 DisposableEffect(w) {
                     web = w
+                    offline = false
+                    offlineNote = null
                     onDispose { if (web === w) web = null; w.view.destroy() }
                 }
                 LaunchedEffect(w) { model.navigate.collect { w.load(it) } }
@@ -213,7 +247,7 @@ class MainActivity : ComponentActivity(), WebHost {
                     onClick = { confirmPortal = true },
                     modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 12.dp),
                 ) { Text("Сменить адрес CRM") }
-                if (offline) Offline(onRetry = { offline = false; w.reload() })
+                if (offline) Offline(onCheck = ::checkConnection, onChangePortal = { confirmPortal = true })
             }
             when (val s = screen) {
                 Screen.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -257,16 +291,58 @@ class MainActivity : ComponentActivity(), WebHost {
     }
 
     @Composable
-    private fun Offline(onRetry: () -> Unit) {
+    private fun Offline(onCheck: () -> Unit, onChangePortal: () -> Unit) {
         Surface(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.windowInsetsPadding(WindowInsets.safeDrawing).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Нет связи с CRM", style = MaterialTheme.typography.headlineSmall)
-                Text("Проверьте интернет. Уведомления продолжат приходить, когда связь появится.")
-                Button(onClick = onRetry) { Text("Повторить") }
+            BoxWithConstraints(Modifier.windowInsetsPadding(WindowInsets.safeDrawing)) {
+                Column(
+                    Modifier.verticalScroll(rememberScrollState()).heightIn(min = maxHeight).fillMaxWidth().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Logo()
+                    // The picture is on white: a card of its own keeps it tidy on the dark theme too.
+                    Image(
+                        painterResource(R.drawable.offline_dog), contentDescription = null,
+                        Modifier.width(260.dp).aspectRatio(720f / 624f).clip(RoundedCornerShape(24.dp)),
+                    )
+                    Text("Нет связи с CRM", style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        offlineNote ?: "Проверьте интернет — страница откроется сама, когда связь появится. Уведомления продолжат приходить.",
+                        textAlign = TextAlign.Center,
+                    )
+                    Button(onClick = onCheck, enabled = !checking, modifier = Modifier.widthIn(min = 240.dp)) {
+                        if (checking) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = LocalContentColor.current)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Проверяем…")
+                        } else Text("Проверить подключение")
+                    }
+                    TextButton(onClick = onChangePortal) { Text("Сменить адрес CRM") }
+                }
+            }
+        }
+    }
+
+    /** The icon of the app: its adaptive layers are 108dp, of which the launcher shows the middle 72. */
+    @Composable
+    private fun Logo() {
+        Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+            Image(painterResource(R.drawable.ic_launcher_background), contentDescription = null, Modifier.requiredSize(84.dp))
+            Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = "AshCRM", Modifier.requiredSize(84.dp))
+        }
+    }
+
+    /** Is it the internet of the phone or the CRM? The CRM answers — the page loads again. */
+    private fun checkConnection() {
+        if (checking) return
+        checking = true
+        lifecycleScope.launch {
+            val r = try { model.reach() } finally { checking = false }
+            if (!offline) return@launch
+            offlineNote = when (r) {
+                Reach.NoInternet -> "Нет интернета на телефоне. Включите Wi-Fi или мобильные данные — страница откроется сама."
+                Reach.CrmDown -> "Интернет работает, но ${model.portal.value?.let { Uri.parse(it).host } ?: "CRM"} не отвечает. Возможно, сервер CRM недоступен — попробуйте позже или смените адрес."
+                Reach.Ok -> null.also { offline = false; web?.reload() }
             }
         }
     }
@@ -275,7 +351,10 @@ class MainActivity : ComponentActivity(), WebHost {
 
     override fun onConnectCallback(uri: Uri) = model.onConnectCallback(uri)
     override fun onBridge(type: String) = model.onBridge(type)
-    override fun onMainFrameError(failed: Boolean) { offline = failed }
+    override fun onMainFrameError(failed: Boolean) {
+        if (!failed) offlineNote = null
+        offline = failed
+    }
     override fun onPageFinished(url: String) {
         android.webkit.CookieManager.getInstance().flush()
     }
