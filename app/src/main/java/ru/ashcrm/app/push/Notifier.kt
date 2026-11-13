@@ -108,12 +108,13 @@ object Notifier {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val cat = Category.of(p.category)
+        val text = CallKind.text(CallKind.of(p.callKind), p.body)
         val b = NotificationCompat.Builder(ctx, channelOf(p.type, p.alert))
             .setSmallIcon(cat?.icon ?: R.drawable.ic_notify)
             .setColor(cat?.color ?: ContextCompat.getColor(ctx, R.color.accent))
             .setContentTitle(p.title.ifEmpty { "AshCRM" })
-            .setContentText(p.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(p.body))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open)
             .setAutoCancel(true)
             .setShowWhen(true)
@@ -222,7 +223,8 @@ object Notifier {
     /** «● Анна Лебедева  15:04 · ждал 12 с»: the dot in the color of the category, the title in bold. */
     private fun row(ctx: Context, n: Notification, c: Category?): CharSequence {
         val title = n.extras.getCharSequence(NotificationCompat.EXTRA_TITLE)?.toString().orEmpty()
-        val body = n.extras.getCharSequence(NotificationCompat.EXTRA_TEXT)?.toString().orEmpty()
+        // The body keeps its spans: the handset of a call stays in its color (§5.2.1).
+        val body = n.extras.getCharSequence(NotificationCompat.EXTRA_TEXT) ?: ""
         return SpannableStringBuilder().apply {
             append("● ", ForegroundColorSpan(c?.color ?: ContextCompat.getColor(ctx, R.color.accent)), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             append(title, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

@@ -11,7 +11,7 @@ enum class Category(
     val color: Int,
     val kind: Kind,
 ) {
-    CallMissed("call_missed", R.drawable.ic_cat_call_missed, R.drawable.notify_call_missed, 0xFF2EAD5B.toInt(), Kind.Call),
+    CallMissed("call_missed", R.drawable.ic_cat_call_missed, R.drawable.notify_call_missed, 0xFFD93B30.toInt(), Kind.Call),
     CallIncoming("call_incoming", R.drawable.ic_cat_call_incoming, R.drawable.notify_call_incoming, 0xFF2EAD5B.toInt(), Kind.Call),
     Queue("queue", R.drawable.ic_cat_queue, R.drawable.notify_queue, 0xFF3390EC.toInt(), Kind.Client),
     ClientMessage("client_message", R.drawable.ic_cat_client_message, R.drawable.notify_client_message, 0xFF3390EC.toInt(), Kind.Client),

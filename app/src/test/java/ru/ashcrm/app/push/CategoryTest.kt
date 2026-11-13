@@ -18,7 +18,8 @@ class CategoryTest {
     }
 
     @Test fun `colors are those of the contract`() {
-        assertEquals(0xFF2EAD5B.toInt(), Category.of("call_missed")!!.color)
+        assertEquals(0xFFD93B30.toInt(), Category.of("call_missed")!!.color)
+        assertEquals(0xFF2EAD5B.toInt(), Category.of("call_incoming")!!.color)
         assertEquals(0xFF3390EC.toInt(), Category.of("queue")!!.color)
         assertEquals(0xFF8E5CD9.toInt(), Category.of("mention")!!.color)
         assertEquals(0xFFD93B30.toInt(), Category.of("alert")!!.color)

@@ -23,10 +23,10 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 11
-        versionName = "0.7.0"
+        versionCode = 12
+        versionName = "0.7.1"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
-        buildConfigField("String", "CONTRACT", "\"1.6\"")
+        buildConfigField("String", "CONTRACT", "\"1.7\"")
         // Versions and the APK come from GitVerse (README → «Выпуск версии»). Its API is closed even for reading a public
         // repository: release/android.json is read as a file of the branch main; it points at the APK of a release.
         buildConfigField("String", "UPDATE_MANIFEST", "\"https://gitverse.ru/api/repos/AshByte/crm-ashbyte-android/raw/branch/main/release/android.json\"")
