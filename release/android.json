@@ -1,14 +1,14 @@
 {
-  "version_code": 14,
-  "version_name": "0.8.0",
+  "version_code": 15,
+  "version_name": "0.9.0",
   "min_version_code": 8,
-  "contract": "1.8",
-  "sha256": "ab54a2fdccbd966af1e6ae3a49a2e08657a583d64abe7b3d7d2f615a86e548e1",
-  "size": 3240328,
-  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.8.0/ashcrm.apk",
+  "contract": "1.9",
+  "sha256": "c907c9c3cae1cdda19e1a43872594c099f7c54f782a43dac092cc15973a7d9ea",
+  "size": 3240336,
+  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.9.0/ashcrm.apk",
   "notes": [
-    "«Доставка»: диспетчер «Уточнить координаты» — место уходит само, без звука, даже когда приложение свёрнуто",
-    "Водителю один раз предлагается разрешить местоположение «Всегда»",
-    "Канал «Доставка — без звука» для таких запросов"
+    "Обновления снова с GitHub — стабильная ссылка latest",
+    "Если GitHub недоступен, суперadmin CRM может указать свой адрес APK",
+    "«Уточнить координаты» для водителей «Доставки» (контракт 1.8–1.9)"
   ]
 }
