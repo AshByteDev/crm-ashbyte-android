@@ -368,9 +368,12 @@ private fun PermissionsTab(tick: Int, onChanged: () -> Unit) {
     val notifOk = remember(tick) { notificationsAllowed(ctx) }
     val batteryOk = remember(tick) { Perms.batteryFree(ctx) }
     val place = remember(tick) { Perms.location(ctx) }
+    val always = remember(tick) { Perms.backgroundLocation(ctx) }
     val camera = remember(tick) { Perms.granted(ctx, Manifest.permission.CAMERA) }
     val mic = remember(tick) { Perms.granted(ctx, Manifest.permission.RECORD_AUDIO) }
     val install = remember(tick) { Perms.canInstall(ctx) }
+    var isDriver by remember { mutableStateOf(false) }
+    LaunchedEffect(tick) { isDriver = ctx.graph.prefs.get(Prefs.IS_DRIVER) == true }
 
     Text(
         "Что AshCRM разрешено на этом телефоне. Камеру, местоположение и микрофон приложение спросит само, когда они понадобятся.",
@@ -389,9 +392,10 @@ private fun PermissionsTab(tick: Int, onChanged: () -> Unit) {
     Step(
         "Местоположение",
         when (place) {
-            Perms.Location.Fine -> "Точное — разрешено. Берётся только в момент отметки, не в фоне"
+            Perms.Location.Fine -> if (isDriver) "Точное — разрешено. Отметки маршрута и ответ диспетчеру «Уточнить координаты»"
+            else "Точное — разрешено. Берётся в момент отметки «Доставки»"
             Perms.Location.Coarse -> "Только приблизительное: место отметки «Доставки» будет неточным. Включите «Точное местоположение»"
-            Perms.Location.None -> "Для отметок «Доставки»: где нажали «Выполнено». Только в момент отметки, не в фоне"
+            Perms.Location.None -> "Для отметок «Доставки»: где нажали «Выполнено»"
         },
         ok = place == Perms.Location.Fine,
         unknown = place == Perms.Location.None,
@@ -400,6 +404,20 @@ private fun PermissionsTab(tick: Int, onChanged: () -> Unit) {
             askedAt = SystemClock.elapsedRealtime(); fallback = { Perms.openAppDetails(ctx) }
             many.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         }) { Text(if (place == Perms.Location.Coarse) "Разрешить точное" else "Разрешить") }
+    }
+    if (isDriver && Build.VERSION.SDK_INT >= 29) Step(
+        "Местоположение «Всегда»",
+        if (always) "Разрешено — диспетчер может спросить, где вы, когда приложение свёрнуто"
+        else "Нужно водителю «Доставки»: иначе «Уточнить координаты» не сработает, пока приложение закрыто",
+        ok = always,
+        unknown = !always,
+    ) {
+        if (!always) Button(onClick = {
+            if (place != Perms.Location.Fine) {
+                askedAt = SystemClock.elapsedRealtime(); fallback = { Perms.openAppDetails(ctx) }
+                many.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            } else ask(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        }) { Text("Разрешить") }
     }
     Step("Камера", if (camera) "Разрешено" else "Для фото к отметкам «Доставки» и входа по QR-коду", ok = camera, unknown = !camera) {
         if (!camera) Button(onClick = { ask(Manifest.permission.CAMERA) }) { Text("Разрешить") }

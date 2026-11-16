@@ -78,6 +78,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     val onLogin: StateFlow<Boolean> = _onLogin
     val warnIncompatible: StateFlow<Boolean> = _warnIncompatible
 
+    /** §7.5: the driver needs «Всегда» — the activity shows the explanation and opens the system settings. */
+    private val _askBackground = MutableStateFlow(false)
+    val askBackground: StateFlow<Boolean> = _askBackground
+
     val supported get() = _crm.value == CrmState.Supported
 
     /** The QR scanner is open (over everything) and from where; its hint under the frame. */
@@ -207,6 +211,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun onResume() {
         // Turned on in the system settings: the screen of §3.5 goes away by itself.
         if (_screen.value == Screen.NeedNotifications && notificationsAllowed(getApplication())) notificationsDone(later = false)
+        maybeAskBackground()
         val p = _portal.value ?: return
         viewModelScope.launch {
             if (_crm.value == CrmState.Unknown || _crm.value == CrmState.Unsupported) {
@@ -214,6 +219,29 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
             val last = g.prefs.get(Prefs.UPDATE_CHECKED_AT) ?: 0
             if (System.currentTimeMillis() - last >= 6 * 3600_000L || _crm.value == CrmState.Incompatible) checkUpdate()
+        }
+    }
+
+    /** The page said `driver`, or a locate push came earlier: ask for «Всегда» at most once a day (§7.5). */
+    fun onDriver() {
+        viewModelScope.launch {
+            g.prefs.set(Prefs.IS_DRIVER, true)
+            maybeAskBackground()
+        }
+    }
+
+    fun dismissBackgroundAsk(asked: Boolean) {
+        _askBackground.value = false
+        if (asked) viewModelScope.launch { g.prefs.set(Prefs.BACKGROUND_ASKED_AT, System.currentTimeMillis()) }
+    }
+
+    private fun maybeAskBackground() {
+        viewModelScope.launch {
+            if (g.prefs.get(Prefs.IS_DRIVER) != true) return@launch
+            if (Perms.backgroundLocation(getApplication())) return@launch
+            val last = g.prefs.get(Prefs.BACKGROUND_ASKED_AT) ?: 0
+            if (System.currentTimeMillis() - last < 24 * 3600_000L) return@launch
+            _askBackground.value = true
         }
     }
 
@@ -326,6 +354,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 loggedOut = false
                 if (supported && g.auth.connected.value == false && g.prefs.get(Prefs.CONNECT_SKIPPED) != true) connect()
             }
+            "driver" -> onDriver()
         }
     }
 
@@ -339,6 +368,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             g.prefs.set(Prefs.PORTAL, null)
             g.prefs.set(Prefs.CONNECT_SKIPPED, null)
             g.prefs.set(Prefs.BLOCKED, null)
+            g.prefs.set(Prefs.IS_DRIVER, null)
+            g.prefs.set(Prefs.BACKGROUND_ASKED_AT, null)
             android.webkit.CookieManager.getInstance().removeAllCookies(null)
             android.webkit.WebStorage.getInstance().deleteAllData()
             _portal.value = null

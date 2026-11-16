@@ -9,6 +9,7 @@ import android.webkit.ValueCallback
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -68,9 +69,9 @@ import kotlinx.coroutines.launch
 import ru.ashcrm.app.net.Reach
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.ui.AppModel
-import ru.ashcrm.app.web.Photos
 import ru.ashcrm.app.ui.AshTheme
 import ru.ashcrm.app.ui.NeedNotificationsScreen
+import ru.ashcrm.app.ui.Perms
 import ru.ashcrm.app.ui.PortalScreen
 import ru.ashcrm.app.ui.ScannerScreen
 import ru.ashcrm.app.ui.Screen
@@ -78,6 +79,7 @@ import ru.ashcrm.app.ui.SettingsScreen
 import ru.ashcrm.app.ui.UpdateDialog
 import ru.ashcrm.app.update.UpdateDecision
 import ru.ashcrm.app.web.CrmWeb
+import ru.ashcrm.app.web.Photos
 import ru.ashcrm.app.web.WebHost
 import ru.ashcrm.app.data.Portal as PortalAddress
 
@@ -226,8 +228,24 @@ class MainActivity : ComponentActivity(), WebHost {
         val onLogin by model.onLogin.collectAsState()
         val scan by model.scan.collectAsState()
         val scanHint by model.scanHint.collectAsState()
+        val askBackground by model.askBackground.collectAsState()
         var confirmPortal by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+        val act = this@MainActivity
+        // «Всегда» (§7.5): fine first if missing, then the background permission (Android 10+ opens its own screen).
+        var pendingBackground by remember { mutableStateOf(false) }
+        val backgroundPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+            if (!ok) Perms.openAppDetails(act)
+        }
+        val askFine = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            if (pendingBackground && Perms.location(act) == Perms.Location.Fine) {
+                pendingBackground = false
+                if (android.os.Build.VERSION.SDK_INT >= 29) backgroundPermission.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                pendingBackground = false
+                if (Perms.location(act) != Perms.Location.Fine) Perms.openAppDetails(act)
+            }
+        }
 
         val bars = pageColor.takeIf { screen == Screen.Web } ?: MaterialTheme.colorScheme.background
         Box(Modifier.fillMaxSize().background(bars)) {
@@ -274,6 +292,25 @@ class MainActivity : ComponentActivity(), WebHost {
                 text = { Text("Вы точно хотите сменить адрес CRM? Приложение вернётся к вводу адреса.") },
                 confirmButton = { TextButton(onClick = { confirmPortal = false; model.changePortal() }) { Text("Сменить") } },
                 dismissButton = { TextButton(onClick = { confirmPortal = false }) { Text("Отмена") } },
+            )
+            if (askBackground) AlertDialog(
+                onDismissRequest = { model.dismissBackgroundAsk(asked = true) },
+                title = { Text("Местоположение для «Доставки»") },
+                text = { Text("Чтобы диспетчер видел, где вы, когда спросит, разрешите доступ к местоположению «Всегда».") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        model.dismissBackgroundAsk(asked = true)
+                        when {
+                            Perms.location(act) != Perms.Location.Fine -> {
+                                pendingBackground = true
+                                askFine.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+                            }
+                            android.os.Build.VERSION.SDK_INT >= 29 && !Perms.backgroundLocation(act) ->
+                                backgroundPermission.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                        }
+                    }) { Text("Разрешить") }
+                },
+                dismissButton = { TextButton(onClick = { model.dismissBackgroundAsk(asked = true) }) { Text("Позже") } },
             )
             if (photoChoice) AlertDialog(
                 onDismissRequest = { photoChoice = false; filesDone(null) },

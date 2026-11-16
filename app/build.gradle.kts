@@ -23,10 +23,10 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 13
-        versionName = "0.7.2"
+        versionCode = 14
+        versionName = "0.8.0"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
-        buildConfigField("String", "CONTRACT", "\"1.7\"")
+        buildConfigField("String", "CONTRACT", "\"1.8\"")
         // Versions and the APK come from GitVerse (README → «Выпуск версии»). Its API is closed even for reading a public
         // repository: release/android.json is read as a file of the branch main; it points at the APK of a release.
         buildConfigField("String", "UPDATE_MANIFEST", "\"https://gitverse.ru/api/repos/AshByte/crm-ashbyte-android/raw/branch/main/release/android.json\"")
@@ -104,5 +104,8 @@ dependencies {
     implementation(libs.zxing.core)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // «Уточнить координаты» (§7.5): one fix of the place, also from the background.
+    implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)
 }

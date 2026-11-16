@@ -131,4 +131,22 @@ class CrmApi(base: OkHttpClient = OkHttpClient()) {
     suspend fun notifyRead(portal: String, access: String, key: String) {
         call(portal, "POST", "/notify/read", json.encodeToString(mapOf("key" to key)), access)
     }
+
+    /** §7.5: the answer of the phone to «Уточнить координаты»; `stored: false` — the page answered first. */
+    suspend fun deliveryLocation(portal: String, access: String, answer: LocationAnswer): Boolean =
+        json.decodeFromString<Stored>(call(portal, "POST", "/delivery/location", json.encodeToString(answer), access)).stored
 }
+
+/** The body of `POST /delivery/location` (§7.5): either a place or a [geoError]. */
+@Serializable
+data class LocationAnswer(
+    @SerialName("request_id") val requestId: String,
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val accuracy: Double? = null,
+    @SerialName("located_at") val locatedAt: String? = null,
+    @SerialName("geo_error") val geoError: String? = null,
+)
+
+@Serializable
+private data class Stored(val stored: Boolean = true)

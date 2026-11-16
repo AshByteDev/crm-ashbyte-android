@@ -48,5 +48,9 @@ class Prefs(context: Context) {
         val UPDATE_CHECKED_AT = longPreferencesKey("update_checked_at")
         /** The contract of the CRM is another major version: notifications are not registered until the update. */
         val BLOCKED = booleanPreferencesKey("blocked")
+        /** The page said `driver` or a locate push came: this phone may ask for «Всегда» (§7.5). */
+        val IS_DRIVER = booleanPreferencesKey("is_driver")
+        /** When «Всегда» was last asked: again at most once a day (§7.5). */
+        val BACKGROUND_ASKED_AT = longPreferencesKey("background_asked_at")
     }
 }

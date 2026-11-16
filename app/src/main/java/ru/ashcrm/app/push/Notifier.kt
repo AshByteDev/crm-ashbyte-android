@@ -34,6 +34,8 @@ object Notifier {
     const val CH_SERVICE = "service"
     const val CH_DELIVERY = "delivery"
     const val CH_DELIVERY_ALERT = "delivery_alert"
+    /** Since 1.8: «Уточнить координаты» and any other `silent` push — no sound, no vibration (§5.1, §7.5). */
+    const val CH_DELIVERY_SILENT = "delivery_silent"
 
     const val EXTRA_PATH = "path"
     const val EXTRA_TAG = "tag"
@@ -76,18 +78,24 @@ object Notifier {
                 ch(CH_WORK, "Задачи и встречи", NotificationManager.IMPORTANCE_DEFAULT, "Задачи, напоминания о встречах, документы на подпись"),
                 delivery(CH_DELIVERY, "Доставка", NotificationManager.IMPORTANCE_DEFAULT, "Заявки доставки: назначили, изменили, сообщения в чате заявки"),
                 delivery(CH_DELIVERY_ALERT, "Доставка — важное", NotificationManager.IMPORTANCE_HIGH, "Пинг диспетчера, «Не удалось», срок прошёл, срочная заявка, водитель снят"),
+                ch(CH_DELIVERY_SILENT, "Доставка — без звука", NotificationManager.IMPORTANCE_LOW, "«Уточнить координаты»: место ушло само, без звука и вибрации"),
                 ch(CH_SERVICE, "Служебные", NotificationManager.IMPORTANCE_DEFAULT, "Проверка уведомлений, обновления приложения"),
             )
         )
     }
 
-    /** `alert` counts only for `delivery` (§5.1); an unknown type goes with the messages of the team, as `dm`. */
-    fun channelOf(type: String, alert: Boolean = false): String = when (type) {
-        "delivery" -> if (alert) CH_DELIVERY_ALERT else CH_DELIVERY
-        "mine", "queue", "alerts" -> CH_CLIENTS
-        "call" -> CH_CALLS
-        "tasks", "calendar", "policy" -> CH_WORK
-        "test" -> CH_SERVICE
+    /**
+     * `silent` — any type goes to «Доставка — без звука» (§5.1, 1.8). `alert` counts only for `delivery` (§5.1);
+     * an unknown type goes with the messages of the team, as `dm`.
+     */
+    fun channelOf(type: String, alert: Boolean = false, silent: Boolean = false): String = when {
+        silent -> CH_DELIVERY_SILENT
+        type == "delivery" && alert -> CH_DELIVERY_ALERT
+        type == "delivery" -> CH_DELIVERY
+        type in setOf("mine", "queue", "alerts") -> CH_CLIENTS
+        type == "call" -> CH_CALLS
+        type in setOf("tasks", "calendar", "policy") -> CH_WORK
+        type == "test" -> CH_SERVICE
         else -> CH_TEAM
     }
 
@@ -109,7 +117,8 @@ object Notifier {
         )
         val cat = Category.of(p.category)
         val text = CallKind.text(CallKind.of(p.callKind), p.body)
-        val b = NotificationCompat.Builder(ctx, channelOf(p.type, p.alert))
+        val quiet = silent || p.silent
+        val b = NotificationCompat.Builder(ctx, channelOf(p.type, p.alert, quiet))
             .setSmallIcon(cat?.icon ?: R.drawable.ic_notify)
             .setColor(cat?.color ?: ContextCompat.getColor(ctx, R.color.accent))
             .setContentTitle(p.title.ifEmpty { "AshCRM" })
@@ -118,18 +127,22 @@ object Notifier {
             .setContentIntent(open)
             .setAutoCancel(true)
             .setShowWhen(true)
-            .setSilent(silent)
+            .setSilent(quiet)
             .setCategory(
-                when (p.type) {
-                    "call" -> NotificationCompat.CATEGORY_CALL
-                    "tasks", "calendar", "policy" -> NotificationCompat.CATEGORY_REMINDER
-                    "test" -> NotificationCompat.CATEGORY_STATUS
+                when {
+                    quiet -> NotificationCompat.CATEGORY_STATUS
+                    p.type == "call" -> NotificationCompat.CATEGORY_CALL
+                    p.type in setOf("tasks", "calendar", "policy") -> NotificationCompat.CATEGORY_REMINDER
+                    p.type == "test" -> NotificationCompat.CATEGORY_STATUS
                     else -> NotificationCompat.CATEGORY_MESSAGE
                 }
             )
             .setPriority(
-                if (p.type in setOf("tasks", "calendar", "policy", "test") || (p.type == "delivery" && !p.alert)) NotificationCompat.PRIORITY_DEFAULT
-                else NotificationCompat.PRIORITY_HIGH
+                when {
+                    quiet -> NotificationCompat.PRIORITY_LOW
+                    p.type in setOf("tasks", "calendar", "policy", "test") || (p.type == "delivery" && !p.alert) -> NotificationCompat.PRIORITY_DEFAULT
+                    else -> NotificationCompat.PRIORITY_HIGH
+                }
             )
         cat?.let { b.setLargeIcon(BitmapFactory.decodeResource(ctx.resources, it.large)) }
         // Notices of the app itself (a test, an update) stay apart from the cards of the CRM.

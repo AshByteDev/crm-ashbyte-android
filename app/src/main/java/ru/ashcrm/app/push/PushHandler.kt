@@ -18,10 +18,15 @@ object PushHandler {
         val keys = runBlocking { ctx.graph.pushKeys.get() }
         val plain = WebPushCrypto.decrypt(Base64.getUrlDecoder().decode(p.trimEnd('=')), keys)
         val payload = json.decodeFromString<Payload>(String(plain))
+        if (payload.locate.isNotEmpty()) {
+            Locate.handle(ctx, payload)
+            return true
+        }
         val visible = runCatching {
             ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         }.getOrDefault(false)
-        Notifier.handle(ctx, payload, silent = visible)
+        // `silent` of the push (§5.1) or the app is already on screen — no sound either way.
+        Notifier.handle(ctx, payload, silent = visible || payload.silent)
         true
     } catch (e: Exception) {
         Log.w(TAG, "push dropped: ${e.javaClass.simpleName}")

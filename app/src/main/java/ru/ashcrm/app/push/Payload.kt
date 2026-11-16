@@ -18,4 +18,8 @@ data class Payload(
     val category: String = "",
     /** Since 1.7: the event is a phone call of this kind — a handset before the text (§5.2.1); empty — not a call. */
     @SerialName("call_kind") val callKind: String = "",
+    /** Since 1.8: no sound and no vibration — the channel «Доставка — без звука» (§5.1). */
+    val silent: Boolean = false,
+    /** Since 1.8: «Уточнить координаты» — the id of the request; the app answers by itself (§7.5). */
+    val locate: String = "",
 )

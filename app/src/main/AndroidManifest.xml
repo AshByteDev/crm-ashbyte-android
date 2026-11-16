@@ -16,11 +16,15 @@
     <!-- The QR scanner of the login (docs/ANDROID_CONTRACT.md §3.4); a phone without a camera installs the app too. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
-    <!-- The place of a mark of «Доставка», asked only when the page asks (docs/ANDROID_CONTRACT.md §7.2); never in the background. -->
+    <!-- The place of a mark of «Доставка» (§7.2) and «Уточнить координаты» (§7.5); «Всегда» — only for a driver. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- Short service while the phone finds itself after a locate push (§7.5); stopped right after the answer. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
@@ -64,6 +68,12 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- One location fix for «Уточнить координаты» (§7.5); the type is required on Android 14+. -->
+        <service
+            android:name=".push.LocateService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -11,6 +11,7 @@ class ChannelTest {
         assertEquals(Notifier.CH_DELIVERY_ALERT, Notifier.channelOf("delivery", alert = true))
         assertEquals(Notifier.CH_DELIVERY, Notifier.channelOf("delivery", alert = false))
         assertEquals(Notifier.CH_DELIVERY, Notifier.channelOf("delivery"))
+        assertEquals(Notifier.CH_DELIVERY_SILENT, Notifier.channelOf("delivery", silent = true))
     }
 
     @Test fun `alert counts only for delivery, an unknown type is a message of the team`() {

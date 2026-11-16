@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -23,6 +24,10 @@ object Perms {
         granted(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) -> Location.Coarse
         else -> Location.None
     }
+
+    /** «Всегда» — for a locate push while the app is not on screen (§7.5); Android 9 and older have no such step. */
+    fun backgroundLocation(ctx: Context) = Build.VERSION.SDK_INT < 29 ||
+        granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
     fun batteryFree(ctx: Context) = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
 
