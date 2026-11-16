@@ -7,7 +7,7 @@ Xiaomi/Huawei/Samsung и др., каналы уведомлений, «Проч�
 Батарею приложение не тратит: в фоне оно ничего не делает, его будит только пришедший push (общее соединение
 сервисов Google). Постоянного соединения нет.
 
-* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.8**). Главный экземпляр —
+* Договорённость с CRM — [`docs/ANDROID_CONTRACT.md`](docs/ANDROID_CONTRACT.md) (версия **1.9**). Главный экземпляр —
   `crm-ashbyte/docs/contracts/ANDROID_CONTRACT.md` (там же все контракты CRM); здесь — его точная копия.
 * Что доработать в CRM — задание хранится вместе с CRM (закрытый репозиторий).
 * Firebase — [`docs/FIREBASE.md`](docs/FIREBASE.md).
@@ -50,15 +50,13 @@ make publish   # то же + релиз на GitVerse и GitHub (см. «Вып�
 
 ## Выпуск версии
 
-Версии раздаются релизами на **GitVerse** — https://gitverse.ru/AshByte/crm-ashbyte-android (с 0.5.0). API GitVerse
-закрыт даже для чтения открытого репозитория, поэтому приложение при запуске читает файл ветки `main`
-`release/android.json` (`gitverse.ru/api/repos/…/raw/branch/main/…`), а он указывает на `ashcrm.apk` релиза
-(`gitverse.ru/api/attachments/<uuid>`). На частые запросы GitVerse отвечает 429 — приложение молча ждёт и повторяет.
+Версии раздаются релизами на **GitHub** — https://github.com/AshByteDev/crm-ashbyte-android
+(`releases/latest/download/android.json` + `ashcrm.apk`). С 1.9 CRM тоже отдаёт этот релиз в `/app/android` и
+`/download/ashcrm.apk`; суперadmin может сменить URL и включить «обновления только из CRM».
 
-Пока телефоны с 0.4.x не обновились, каждый выпуск **дублируется на GitHub** (релиз с `ashcrm.apk` и `android.json`):
-версии до 0.4.x проверяют только его. 0.5.0 — мост, обязательный для всех (`min_version_code` 8). Через несколько
-версий дубль на GitHub отключается. Сборка и подпись — только на этом компьютере; токен GitVerse —
-`~/.android-keys/gitverse.token` (права «Репозитории: чтение и запись»), в репозиторий не попадает.
+Пока часть телефонов ещё на GitVerse-схеме (0.5–0.8), выпуск **дублируется на GitVerse** (релиз +
+`release/android.json` в `main`). Сборка и подпись — только на этом компьютере; токен GitVerse —
+`~/.android-keys/gitverse.token`, в репозиторий не попадает.
 
 1. `app/build.gradle.kts`: поднять `versionCode` (+1) и `versionName`. Менялся обмен с CRM — сначала
    контракт в `crm-ashbyte/docs/contracts/`, его копия в `docs/ANDROID_CONTRACT.md`, затем `CONTRACT`.

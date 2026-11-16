@@ -36,13 +36,13 @@ dist: check release  ## ashcrm.apk + android.json для GitHub (приложе�
 	@mkdir -p $(DIST)/github
 	cp app/build/outputs/apk/release/app-release.apk $(DIST)/ashcrm.apk
 	python3 -I scripts/android_json.py app/build/outputs/apk/release/output-metadata.json $(DIST)/ashcrm.apk app/build.gradle.kts release \
-		"https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v$(VERSION)/ashcrm.apk" > $(DIST)/github/android.json
+		"https://github.com/AshByteDev/crm-ashbyte-android/releases/latest/download/ashcrm.apk" > $(DIST)/github/android.json
 	@cat $(DIST)/github/android.json; echo
 
-# Выпуск — сразу в два места (решение владельца 12.11: GitHub дублируется несколько версий, потом отключается):
-#  * GitHub: ashcrm.apk + android.json — для телефонов до 0.4.x, они проверяют только GitHub;
-#  * GitVerse: релиз с ashcrm.apk; release/android.json в ветке main указывает на него — его читают телефоны с 0.5.0.
-# Собирается и подписывается здесь: ключ подписи не покидает компьютер. Токен GitVerse — ~/.android-keys/gitverse.token.
+# Выпуск (с 1.9 источник для новых телефонов — GitHub latest; GitVerse — зеркало для 0.5–0.8):
+#  * GitHub: ashcrm.apk + android.json (latest/download/…);
+#  * GitVerse: релиз + release/android.json в main (пока старые сборки его читают).
+# Ключ подписи не покидает компьютер. Токен GitVerse — ~/.android-keys/gitverse.token.
 publish: dist
 	@test -z "$$(git status --porcelain)" || { echo "есть незакоммиченные изменения — сначала коммит"; exit 1; }
 	@git fetch -q origin
@@ -55,7 +55,7 @@ publish: dist
 	python3 -I scripts/android_json.py app/build/outputs/apk/release/output-metadata.json $(DIST)/ashcrm.apk app/build.gradle.kts release "$$URL" > release/android.json && \
 	git add release/android.json && git commit -q -m "Выпуск $$V: release/android.json → GitVerse" && \
 	git push -q origin main && git push -q gitverse main && \
-	echo "опубликовано на GitHub и GitVerse: телефоны предложат обновление при следующем запуске"
+	echo "опубликовано на GitHub (latest) и GitVerse"
 	@$(GRADLE) --stop -q  # отдать память: Gradle и компилятор Kotlin держат по нескольку ГБ
 
 emulator:         ## эмулятор без окна (Medium_Phone_API_37.0 из Android Studio)

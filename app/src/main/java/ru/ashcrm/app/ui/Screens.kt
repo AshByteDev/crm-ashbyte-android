@@ -449,7 +449,7 @@ private fun AboutTab(model: AppModel) {
     OutlinedButton(enabled = !checking, onClick = {
         checking = true
         scope.launch {
-            val release = g.updater.latest()
+            val release = g.updater.pickRelease(portal)
             when {
                 release == null -> android.widget.Toast.makeText(ctx, "Нет связи с сервером обновлений — попробуйте позже", android.widget.Toast.LENGTH_SHORT).show()
                 release.versionCode > BuildConfig.VERSION_CODE -> update = release

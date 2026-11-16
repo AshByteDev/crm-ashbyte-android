@@ -200,7 +200,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private fun checkUpdate() {
         if (updateJob?.isActive == true) return
         updateJob = viewModelScope.launch {
-            val d = g.updater.decide(_crm.value)
+            val d = g.updater.decide(_portal.value, _crm.value)
             _decision.value = d
             if (d is UpdateDecision.Mandatory) _screen.value = Screen.MustUpdate(d.release)
             if (d is UpdateDecision.Mandatory) _warnIncompatible.value = false

@@ -35,9 +35,22 @@ data class DeviceTokens(
 @Serializable
 data class Me(@SerialName("display_name") val displayName: String = "", @SerialName("tenant_name") val tenantName: String = "")
 
-/** GET /app/android of the CRM: only the contract matters since the app updates from GitVerse (§2). */
+/**
+ * GET /app/android of the CRM (§2): [contract] always; since 1.9 — the release and [updatesFromCrm] when the
+ * superadmin points phones at the CRM instead of GitHub.
+ */
 @Serializable
-data class AppInfo(val contract: String)
+data class AppInfo(
+    val contract: String,
+    @SerialName("updates_from_crm") val updatesFromCrm: Boolean = false,
+    @SerialName("version_code") val versionCode: Int = 0,
+    @SerialName("version_name") val versionName: String = "",
+    @SerialName("min_version_code") val minVersionCode: Int = 0,
+    val sha256: String = "",
+    val size: Long = 0,
+    val url: String = "",
+    val notes: List<String> = emptyList(),
+)
 
 @Serializable
 data class Subscription(val endpoint: String, val p256dh: String, val auth: String, val platform: String = "android")

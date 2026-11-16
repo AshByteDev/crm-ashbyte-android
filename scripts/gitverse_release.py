@@ -58,4 +58,31 @@ body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"attachment\"; f
 status, asset = call("POST", f"{API}/releases/{rel['id']}/assets?name=ashcrm.apk", body, f"multipart/form-data; boundary={boundary}")
 if status != 201:
     sys.exit(f"GitVerse: APK не загружен: {status} {asset}")
-print(asset["browser_download_url"])
+
+# Phones 0.5–0.8 accept only https://gitverse.ru/api/attachments/<uuid>.
+# Prefer uuid / attachments url from the upload response; fall back to browser_download_url.
+ATTACH = "https://gitverse.ru/api/attachments/"
+UUID = __import__("re").compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def apk_url(asset):
+    uid = (asset.get("uuid") or "").strip()
+    if UUID.match(uid):
+        return ATTACH + uid
+    for key in ("url", "browser_download_url"):
+        u = (asset.get(key) or "").strip()
+        for marker in ("/api/attachments/", "/public/api/attachments/"):
+            if marker in u:
+                tail = u.split(marker, 1)[1].split("?", 1)[0].rstrip("/")
+                if UUID.match(tail):
+                    return ATTACH + tail
+    return asset.get("browser_download_url") or ""
+
+
+url = apk_url(asset)
+if not url:
+    sys.exit(f"GitVerse: нет ссылки на APK: {asset}")
+if not url.startswith(ATTACH):
+    print(f"GitVerse: нет attachments UUID — старые телефоны (0.5–0.8) не примут: {url}", file=sys.stderr)
+    print(f"GitVerse asset keys: {sorted(asset)}", file=sys.stderr)
+print(url)

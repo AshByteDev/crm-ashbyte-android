@@ -23,14 +23,13 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = "0.8.0"
+        versionCode = 15
+        versionName = "0.9.0"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
-        buildConfigField("String", "CONTRACT", "\"1.8\"")
-        // Versions and the APK come from GitVerse (README → «Выпуск версии»). Its API is closed even for reading a public
-        // repository: release/android.json is read as a file of the branch main; it points at the APK of a release.
-        buildConfigField("String", "UPDATE_MANIFEST", "\"https://gitverse.ru/api/repos/AshByte/crm-ashbyte-android/raw/branch/main/release/android.json\"")
-        buildConfigField("String", "RELEASES_PREFIX", "\"https://gitverse.ru/api/attachments/\"")
+        buildConfigField("String", "CONTRACT", "\"1.9\"")
+        // Versions and the APK — GitHub latest (README → «Выпуск версии»); CRM may override when updates_from_crm (§2.3).
+        buildConfigField("String", "UPDATE_MANIFEST", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/latest/download/android.json\"")
+        buildConfigField("String", "RELEASES_PREFIX", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/download/\"")
         buildConfigField("boolean", "HAS_FIREBASE", hasFirebase.toString())
     }
 

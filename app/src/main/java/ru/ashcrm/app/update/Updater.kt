@@ -15,6 +15,7 @@ import kotlinx.serialization.Serializable
 import okhttp3.Request
 import ru.ashcrm.app.BuildConfig
 import ru.ashcrm.app.data.Prefs
+import ru.ashcrm.app.net.AppInfo
 import ru.ashcrm.app.net.CrmApi
 import ru.ashcrm.app.net.HttpError
 import ru.ashcrm.app.net.json
@@ -22,7 +23,7 @@ import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 
-/** A release of the app: `release/android.json` of the repository on GitVerse, it points at `ashcrm.apk` (README → «Выпуск версии»). */
+/** A release of the app: `android.json` next to `ashcrm.apk` (README → «Выпуск версии»). */
 @Serializable
 data class Release(
     @SerialName("version_code") val versionCode: Int,
@@ -36,7 +37,7 @@ data class Release(
     val notes: List<String> = emptyList(),
 )
 
-/** What the CRM says about the app (docs/ANDROID_CONTRACT.md §2): only whether it knows it and the contract. */
+/** What the CRM says about the app (docs/ANDROID_CONTRACT.md §2): the contract and, since 1.9, the release. */
 enum class CrmState {
     /** No answer (no network): decided later. */
     Unknown,
@@ -47,12 +48,12 @@ enum class CrmState {
     Incompatible,
 }
 
-/** What the app does about its version (owner 12.11: versions and the APK come from GitVerse). */
+/** What the app does about its version. */
 sealed interface UpdateDecision {
     data object None : UpdateDecision
     /** A newer version, offered once; «Позже» until the next one. */
     data class Optional(val release: Release) : UpdateDecision
-    /** Below `min_version_code`, or the CRM speaks another contract and GitVerse has a newer app: no «Позже». */
+    /** Below `min_version_code`, or the CRM speaks another contract and a newer app exists: no «Позже». */
     data class Mandatory(val release: Release) : UpdateDecision
 }
 
@@ -70,6 +71,16 @@ object VersionRules {
         declined != release.versionCode -> UpdateDecision.Optional(release)
         else -> UpdateDecision.None
     }
+
+    /**
+     * Which release to install (§2.3, 1.9): GitHub by default; CRM when it says [updatesFromCrm]; CRM down with that
+     * flag — GitHub again. Equal versions are not compared here (only one source is chosen).
+     */
+    fun pick(github: Release?, crmRelease: Release?, updatesFromCrm: Boolean): Release? = when {
+        updatesFromCrm && crmRelease != null -> crmRelease
+        updatesFromCrm -> github
+        else -> github
+    }
 }
 
 class Updater(private val ctx: Context, private val prefs: Prefs, private val api: CrmApi) {
@@ -80,18 +91,28 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
         return VersionRules.crm(info.contract).also { prefs.set(Prefs.BLOCKED, it == CrmState.Incompatible) }
     }
 
-    /** The latest release; null — GitVerse did not answer (blocked, no network, too many requests): silently, next time. */
-    suspend fun latest(): Release? = withContext(Dispatchers.IO) {
+    /** The release the phone should offer: GitHub and/or CRM (§2.3). */
+    suspend fun pickRelease(portal: String?): Release? {
+        val info = portal?.let { runCatching { api.appInfo(it) }.getOrNull() }
+        val fromCrm = info?.toRelease()?.takeIf { releaseUrlOk(it.url, fromCrm = true) }
+        val fromGh = githubLatest()
+        return VersionRules.pick(fromGh, fromCrm, info?.updatesFromCrm == true)
+    }
+
+    /** The latest release on GitHub; null — GitHub did not answer: silently, next time. */
+    suspend fun latest(): Release? = githubLatest()
+
+    private suspend fun githubLatest(): Release? = withContext(Dispatchers.IO) {
         runCatching {
             api.http.newCall(Request.Builder().url(BuildConfig.UPDATE_MANIFEST).build()).execute().use { res ->
                 if (!res.isSuccessful) return@use null
-                json.decodeFromString<Release>(res.body.string()).takeIf { releaseUrlOk(it.url) }
+                json.decodeFromString<Release>(res.body.string()).takeIf { releaseUrlOk(it.url, fromCrm = false) }
             }
         }.getOrNull()
     }
 
-    suspend fun decide(crm: CrmState): UpdateDecision {
-        val release = latest()
+    suspend fun decide(portal: String?, crm: CrmState): UpdateDecision {
+        val release = pickRelease(portal)
         if (release != null) prefs.set(Prefs.UPDATE_CHECKED_AT, System.currentTimeMillis())
         return VersionRules.decide(release, BuildConfig.VERSION_CODE, prefs.get(Prefs.DECLINED_VERSION), crm)
     }
@@ -106,18 +127,20 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
     )
 
     /**
-     * Downloads the APK of [release] from GitVerse and checks its SHA-256 and that it is signed like this app; throws
-     * with a text for a person. Only a file of a release, only over https, from gitverse.ru. GitVerse answers bursts of
-     * requests (phones of one office behind one address) with 429: wait and try again.
+     * Downloads the APK of [release] and checks its SHA-256 and that it is signed like this app. GitHub answers with a
+     * redirect to its file storage; a CRM fallback may point at any https host — the signature is what counts.
      */
     suspend fun download(release: Release, progress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
-        if (!releaseUrlOk(release.url)) throw IOException("Неверная ссылка на обновление")
+        val fromCrm = !releaseUrlOk(release.url, fromCrm = false)
+        if (!releaseUrlOk(release.url, fromCrm = fromCrm)) throw IOException("Неверная ссылка на обновление")
         val file = File(ctx.cacheDir, "update.apk").apply { delete() }
         val digest = MessageDigest.getInstance("SHA-256")
         fetchWaitingWhenBusy(release.url).use { res ->
             if (res.code == 429) throw HttpError(res.code, null, "Сервер обновлений занят — попробуйте через минуту")
             if (!res.isSuccessful) throw HttpError(res.code, null, "Не удалось скачать обновление: ответ ${res.code}")
-            if (res.request.url.host !in DOWNLOAD_HOSTS) throw IOException("Обновление пришло не с GitVerse — отменено")
+            val host = res.request.url.host
+            if (!fromCrm && host !in GITHUB_DOWNLOAD_HOSTS) throw IOException("Обновление пришло не с GitHub — отменено")
+            if (fromCrm && res.request.url.scheme != "https") throw IOException("Обновление должно быть по https")
             val total = res.body.contentLength().takeIf { it > 0 } ?: release.size
             res.body.byteStream().use { input ->
                 file.outputStream().use { out ->
@@ -192,16 +215,30 @@ class Updater(private val ctx: Context, private val prefs: Prefs, private val ap
     }
 
     companion object {
-        /** GitVerse gives the file of a release itself, without a redirect (checked 12.11.2026). */
-        val DOWNLOAD_HOSTS = setOf("gitverse.ru")
+        /** github.com redirects a release download to its storage of files. */
+        val GITHUB_DOWNLOAD_HOSTS = setOf("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
 
         /** Pauses after a 429 before the next try. */
         private val BUSY_WAITS = longArrayOf(5_000, 15_000, 30_000)
 
-        private val ATTACHMENT = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        private val GITHUB_RELEASE = Regex(
+            "^https://github\\.com/AshByteDev/crm-ashbyte-android/releases/(?:latest/download|download/v[0-9]+(?:\\.[0-9]+)+)/(?:ashcrm\\.apk|android\\.json)$"
+        )
 
-        /** Only a file of a release (`<prefix><uuid>`), over https. */
-        fun releaseUrlOk(url: String, prefix: String = BuildConfig.RELEASES_PREFIX) =
-            url.startsWith(prefix) && ATTACHMENT.matches(url.removePrefix(prefix))
+        /**
+         * GitHub — only this repository. CRM fallback — any https URL (the APK still must match [sha256] and the
+         * signing certificate of the installed app).
+         */
+        fun releaseUrlOk(url: String, fromCrm: Boolean = false, prefix: String = BuildConfig.RELEASES_PREFIX): Boolean {
+            if (fromCrm) return url.startsWith("https://") && !url.contains("..")
+            if (GITHUB_RELEASE.matches(url)) return true
+            // Tag APK of our repo (android.json url field), prefix without the file name.
+            return url.startsWith(prefix) && url.endsWith("/ashcrm.apk") && !url.contains("..")
+        }
     }
+}
+
+private fun AppInfo.toRelease(): Release? {
+    if (versionCode <= 0 || sha256.isEmpty() || url.isEmpty()) return null
+    return Release(versionCode, versionName.ifEmpty { "0.$versionCode.0" }, minVersionCode, sha256, size, url, notes)
 }

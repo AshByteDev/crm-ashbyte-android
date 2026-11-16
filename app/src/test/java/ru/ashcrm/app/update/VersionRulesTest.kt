@@ -2,14 +2,16 @@ package ru.ashcrm.app.update
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VersionRulesTest {
-    private fun release(code: Int, min: Int = 0) = Release(code, "0.$code.0", min, "00", 1,
-        "https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.$code.0/ashcrm.apk")
+    private fun release(code: Int, min: Int = 0, url: String = "https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.$code.0/ashcrm.apk") =
+        Release(code, "0.$code.0", min, "00", 1, url)
 
-    @Test fun noAnswerOfGitVerseChangesNothing() =
+    @Test fun noAnswerOfGitHubChangesNothing() =
         assertEquals(UpdateDecision.None, VersionRules.decide(null, 5, null, CrmState.Supported))
 
     @Test fun sameOrOlderIsNothing() {
@@ -34,13 +36,29 @@ class VersionRulesTest {
         assertEquals(CrmState.Incompatible, VersionRules.crm("2.0", own = "1.2"))
     }
 
-    @Test fun onlyFilesOfReleasesOnGitVerse() {
-        val p = "https://gitverse.ru/api/attachments/"
-        assertTrue(Updater.releaseUrlOk("${p}c344d2da-b0bd-4568-acd1-10786a99a095", p))
-        assertFalse(Updater.releaseUrlOk("http://gitverse.ru/api/attachments/c344d2da-b0bd-4568-acd1-10786a99a095", p))
-        assertFalse(Updater.releaseUrlOk("${p}c344d2da-b0bd-4568-acd1-10786a99a095/../x", p))
-        assertFalse(Updater.releaseUrlOk("${p}../repos/x", p))
-        assertFalse(Updater.releaseUrlOk("https://gitverse.ru.evil.example/api/attachments/c344d2da-b0bd-4568-acd1-10786a99a095", p))
-        assertFalse(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/download/v0.4.3/ashcrm.apk", p))
+    @Test fun pickUsesGitHubByDefault() {
+        val gh = release(10)
+        val crm = release(11, url = "https://example.com/ashcrm.apk")
+        assertSame(gh, VersionRules.pick(gh, crm, updatesFromCrm = false))
+        assertNull(VersionRules.pick(null, crm, updatesFromCrm = false))
+    }
+
+    @Test fun pickUsesCrmWhenFlagSetAndFallsBackToGitHub() {
+        val gh = release(10)
+        val crm = release(9, url = "https://example.com/ashcrm.apk")
+        assertSame(crm, VersionRules.pick(gh, crm, updatesFromCrm = true))
+        assertSame(gh, VersionRules.pick(gh, null, updatesFromCrm = true))
+        assertNull(VersionRules.pick(null, null, updatesFromCrm = true))
+    }
+
+    @Test fun onlyOurGitHubReleasesOrHttpsFromCrm() {
+        val p = "https://github.com/AshByteDev/crm-ashbyte-android/releases/download/"
+        assertTrue(Updater.releaseUrlOk("${p}v0.9.0/ashcrm.apk", fromCrm = false, prefix = p))
+        assertTrue(Updater.releaseUrlOk("https://github.com/AshByteDev/crm-ashbyte-android/releases/latest/download/ashcrm.apk", fromCrm = false, prefix = p))
+        assertFalse(Updater.releaseUrlOk("https://github.com/Other/crm-ashbyte-android/releases/latest/download/ashcrm.apk", fromCrm = false, prefix = p))
+        assertFalse(Updater.releaseUrlOk("https://example.com/ashcrm.apk", fromCrm = false, prefix = p))
+        assertTrue(Updater.releaseUrlOk("https://example.com/ashcrm.apk", fromCrm = true, prefix = p))
+        assertFalse(Updater.releaseUrlOk("http://example.com/ashcrm.apk", fromCrm = true, prefix = p))
+        assertFalse(Updater.releaseUrlOk("https://example.com/../ashcrm.apk", fromCrm = true, prefix = p))
     }
 }
