@@ -1,14 +1,13 @@
 {
-  "version_code": 16,
-  "version_name": "0.10.0",
+  "version_code": 17,
+  "version_name": "0.11.0",
   "min_version_code": 8,
-  "contract": "1.14",
-  "sha256": "9b1433a08ee99cbf658598b36027602e42ebe9fe15cfeb4c7c3698a5ef245e05",
-  "size": 3256704,
-  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.10.0/ashcrm.apk",
+  "contract": "1.15",
+  "sha256": "7c7fa7dbfc2a1611dc4fd1c7252ad10119de8a6794df436bcf516f49d61a8788",
+  "size": 3273300,
+  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.11.0/ashcrm.apk",
   "notes": [
-    "Напоминания по личным заметкам — свой канал «Заметки», значок блокнота, кнопка «Прочитано»",
-    "Запросы «Автосервис ЛинкПарт» — свой значок и цвет",
-    "Пока CRM сжимает и отправляет видео, экран не гаснет, а сворачивание не прерывает отправку"
+    "«Поделиться» → AshCRM: файлы, текст и ссылки из любого приложения отправляются в выбранный чат CRM",
+    "Нужна CRM с поддержкой «Поделиться» — иначе приложение подскажет обновить CRM"
   ]
 }
