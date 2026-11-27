@@ -1,14 +1,14 @@
 {
-  "version_code": 15,
-  "version_name": "0.9.0",
+  "version_code": 16,
+  "version_name": "0.10.0",
   "min_version_code": 8,
-  "contract": "1.9",
-  "sha256": "c907c9c3cae1cdda19e1a43872594c099f7c54f782a43dac092cc15973a7d9ea",
-  "size": 3240336,
-  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.9.0/ashcrm.apk",
+  "contract": "1.14",
+  "sha256": "9b1433a08ee99cbf658598b36027602e42ebe9fe15cfeb4c7c3698a5ef245e05",
+  "size": 3256704,
+  "url": "https://gitverse.ru/AshByte/crm-ashbyte-android/releases/download/v0.10.0/ashcrm.apk",
   "notes": [
-    "Обновления снова с GitHub — стабильная ссылка latest",
-    "Если GitHub недоступен, суперadmin CRM может указать свой адрес APK",
-    "«Уточнить координаты» для водителей «Доставки» (контракт 1.8–1.9)"
+    "Напоминания по личным заметкам — свой канал «Заметки», значок блокнота, кнопка «Прочитано»",
+    "Запросы «Автосервис ЛинкПарт» — свой значок и цвет",
+    "Пока CRM сжимает и отправляет видео, экран не гаснет, а сворачивание не прерывает отправку"
   ]
 }
