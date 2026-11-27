@@ -86,8 +86,14 @@ object VersionRules {
 class Updater(private val ctx: Context, private val prefs: Prefs, private val api: CrmApi) {
 
     /** Does the CRM know the app (GET /app/android)? Throws on no network — the caller keeps [CrmState.Unknown]. */
+    /** `features` of the last answer of the CRM (§2.1, since 1.15); empty until it answered. */
+    @Volatile var features: Set<String> = emptySet()
+        private set
+
     suspend fun crm(portal: String): CrmState {
-        val info = api.appInfo(portal) ?: return CrmState.Unsupported.also { prefs.set(Prefs.BLOCKED, null) }
+        val info = api.appInfo(portal)
+        features = info?.features.orEmpty().toSet()
+        if (info == null) return CrmState.Unsupported.also { prefs.set(Prefs.BLOCKED, null) }
         return VersionRules.crm(info.contract).also { prefs.set(Prefs.BLOCKED, it == CrmState.Incompatible) }
     }
 

@@ -50,6 +50,8 @@ data class AppInfo(
     val size: Long = 0,
     val url: String = "",
     val notes: List<String> = emptyList(),
+    /** Since 1.15: what this CRM can do with the app beyond the contract, e.g. `share` (§7.7). */
+    val features: List<String> = emptyList(),
 )
 
 @Serializable

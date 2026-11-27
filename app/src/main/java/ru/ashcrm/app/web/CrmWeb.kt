@@ -20,6 +20,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -29,7 +30,10 @@ import androidx.core.net.toUri
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import ru.ashcrm.app.share.ShareRules
+import ru.ashcrm.app.share.ShareStore
 import ru.ashcrm.app.data.Portal
 import ru.ashcrm.app.net.APP_AGENT
 import ru.ashcrm.app.net.json
@@ -42,6 +46,8 @@ interface WebHost {
     fun onBridge(type: String)
     /** Since 1.13: the page compresses or uploads media (§7.6) — keep the screen on and the page running. */
     fun onBusy(on: Boolean) = Unit
+    /** Since 1.15: the page took the share into a chat ([cancelled] false) or the person gave it up (§7.7). */
+    fun onShareEnd(cancelled: Boolean) = Unit
     /**
      * An `<input type=file>`: [intent] is the picker of files; [camera] — the page takes images, so a photo from the
      * camera goes too (§7.3); [cameraOnly] — the input has `capture`, the camera opens at once.
@@ -89,6 +95,12 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
         view.webChromeClient = Chrome()
         view.setDownloadListener { url, _, disposition, mime, _ -> download(url, disposition, mime) }
         installBridge()
+        // A service worker of the page that passes a fetch on: its requests bypass the client above (§7.7).
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_SHOULD_INTERCEPT_REQUEST)) {
+            androidx.webkit.ServiceWorkerControllerCompat.getInstance().setServiceWorkerClient(object : androidx.webkit.ServiceWorkerClientCompat() {
+                override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? = shared(request)
+            })
+        }
     }
 
     fun load(path: String) {
@@ -135,13 +147,22 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
     private fun installBridge() {
         val origins = setOf(portal)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(view, "AshCRMAndroid", origins) { _, message, _, isMainFrame, _ ->
+            WebViewCompat.addWebMessageListener(view, "AshCRMAndroid", origins) { _, message, _, isMainFrame, reply ->
                 if (!isMainFrame) return@addWebMessageListener
                 val msg = runCatching { json.decodeFromString<JsonObject>(message.data ?: "") }.getOrNull() ?: return@addWebMessageListener
                 when (val t = msg["t"]?.jsonPrimitive?.content) {
                     "blob" -> saveBlob(msg["name"]?.jsonPrimitive?.content, msg["data"]?.jsonPrimitive?.content)
                     "blob-error" -> toast("Не удалось сохранить файл")
                     "busy" -> host.onBusy(busyOn(msg))
+                    // §7.7: what was shared — the answer goes back by AshCRMAndroid.onmessage of the page.
+                    "share" -> runCatching { reply.postMessage(ShareRules.reply(ShareStore.current(ctx))) }
+                    "share-done", "share-cancel" -> {
+                        val id = msg["id"]?.jsonPrimitive?.contentOrNull
+                        if (id != null && id == ShareStore.current(ctx)?.id) {
+                            ShareStore.clear(ctx, id)
+                            host.onShareEnd(cancelled = t == "share-cancel")
+                        }
+                    }
                     null -> Unit
                     else -> host.onBridge(t)
                 }
@@ -162,6 +183,8 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
                 else -> { openOutside(uri); true }
             }
         }
+
+        override fun shouldInterceptRequest(v: WebView, request: WebResourceRequest): WebResourceResponse? = shared(request)
 
         override fun onPageStarted(v: WebView, url: String, favicon: Bitmap?) {
             mainFrameFailed = false
@@ -220,6 +243,28 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
      * The system picker for an `<input type=file>`. `accept` may hold extensions (".pdf,.docx"), which Android
      * does not take as a type: they turn into MIME types here, and what has no known type opens the picker for any file.
      */
+    /**
+     * `GET <CRM>/.ashcrm-share/<id>/<n>` (§7.7): the file of the share, answered by the app itself — it never goes to the
+     * network. Other origins and other paths go on as usual (null).
+     */
+    internal fun shared(request: WebResourceRequest): WebResourceResponse? {
+        val url = request.url
+        if (url.path?.startsWith(ShareRules.PREFIX) != true) return null
+        if (!Portal.sameOrigin(portal, url.toString())) return null
+        val found = ShareRules.parse(url.path)?.takeIf { request.method == "GET" }?.let { (id, n) -> ShareStore.file(ctx, id, n) }
+            ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", mapOf("Cache-Control" to "no-store"), "".byteInputStream())
+        val (meta, file) = found
+        return WebResourceResponse(
+            meta.type, null, 200, "OK",
+            mapOf(
+                "Cache-Control" to "no-store",
+                "Content-Length" to file.length().toString(),
+                "Content-Disposition" to "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(meta.name, "UTF-8").replace("+", "%20"),
+            ),
+            file.inputStream(),
+        )
+    }
+
     private fun acceptTypes(params: WebChromeClient.FileChooserParams): List<String> = params.acceptTypes.orEmpty()
         .flatMap { it.split(',') }.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
         .map { if (it.startsWith('.')) android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.drop(1)) ?: "*/*" else it }

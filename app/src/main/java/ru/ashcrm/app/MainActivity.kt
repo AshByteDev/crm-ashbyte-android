@@ -140,7 +140,8 @@ class MainActivity : ComponentActivity(), WebHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        handle(intent)
+        // A recreated activity (the process came back) must not act on its old intent again: a share was used up.
+        if (savedInstanceState == null || intent?.action != ru.ashcrm.app.share.ShareActivity.ACTION_SHARED) handle(intent)
         publishShortcut()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -211,6 +212,10 @@ class MainActivity : ComponentActivity(), WebHost {
                 model.showWeb()
                 web?.load(path) ?: run { model.pendingPath = path }
             }
+            ru.ashcrm.app.share.ShareActivity.ACTION_SHARED -> lifecycleScope.launch {
+                if (!model.shareReady()) return@launch
+                web?.load(SHARE_PATH) ?: run { model.pendingPath = SHARE_PATH }
+            }
             ACTION_SETTINGS -> {
                 ShortcutManagerCompat.reportShortcutUsed(this, "settings")
                 model.openSettings()
@@ -242,6 +247,7 @@ class MainActivity : ComponentActivity(), WebHost {
         val scan by model.scan.collectAsState()
         val scanHint by model.scanHint.collectAsState()
         val askBackground by model.askBackground.collectAsState()
+        val shareUnsupported by model.shareUnsupported.collectAsState()
         var confirmPortal by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val act = this@MainActivity
@@ -325,6 +331,12 @@ class MainActivity : ComponentActivity(), WebHost {
                 },
                 dismissButton = { TextButton(onClick = { model.dismissBackgroundAsk(asked = true) }) { Text("Позже") } },
             )
+            if (shareUnsupported) AlertDialog(
+                onDismissRequest = model::dismissShareUnsupported,
+                title = { Text("Не получится отправить") },
+                text = { Text("Ваша CRM пока не принимает файлы и ссылки через «Поделиться». Попросите администратора обновить CRM.") },
+                confirmButton = { TextButton(onClick = model::dismissShareUnsupported) { Text("Понятно") } },
+            )
             if (photoChoice) AlertDialog(
                 onDismissRequest = { photoChoice = false; filesDone(null) },
                 title = { Text("Приложить фото") },
@@ -401,6 +413,11 @@ class MainActivity : ComponentActivity(), WebHost {
 
     override fun onConnectCallback(uri: Uri) = model.onConnectCallback(uri)
     override fun onBridge(type: String) = model.onBridge(type)
+
+    /** «Отмена» on the page of the share: back to the app the person shared from. */
+    override fun onShareEnd(cancelled: Boolean) {
+        if (cancelled) moveTaskToBack(true)
+    }
 
     override fun onBusy(on: Boolean) {
         busy.message(on, android.os.SystemClock.elapsedRealtime())
@@ -514,5 +531,7 @@ class MainActivity : ComponentActivity(), WebHost {
 
     companion object {
         const val ACTION_SETTINGS = "ru.ashcrm.app.SETTINGS"
+        /** The page of the CRM where a shared file or text finds its chat (§7.7). */
+        const val SHARE_PATH = "/share"
     }
 }

@@ -22,6 +22,7 @@ import ru.ashcrm.app.net.HttpError
 import ru.ashcrm.app.net.Reach
 import ru.ashcrm.app.push.Notifier
 import ru.ashcrm.app.push.Register
+import ru.ashcrm.app.share.ShareStore
 import ru.ashcrm.app.update.CrmState
 import ru.ashcrm.app.update.UpdateDecision
 import java.io.IOException
@@ -465,9 +466,47 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- «Поделиться» (§7.7) ----
+
+    /** «Поделиться» came, but this CRM cannot take it yet: the activity tells it. */
+    private val _shareUnsupported = MutableStateFlow(false)
+    val shareUnsupported: StateFlow<Boolean> = _shareUnsupported
+
+    fun dismissShareUnsupported() {
+        _shareUnsupported.value = false
+    }
+
+    /**
+     * A share is saved (ShareActivity): true — open `/share` of the CRM. No portal yet, or the CRM does not say
+     * `share` in `features` — the share is dropped and the person told why.
+     */
+    suspend fun shareReady(): Boolean {
+        _screen.first { it != Screen.Loading }
+        val p = _portal.value
+        if (p == null) {
+            ShareStore.clear(getApplication())
+            _message.emit("Сначала укажите адрес CRM, затем поделитесь ещё раз")
+            return false
+        }
+        // Asked every time (the CRM may have been updated either way); no network — the last answer counts.
+        runCatching { g.updater.crm(p) }.getOrNull()?.let { _crm.value = it }
+        if (FEATURE_SHARE !in g.updater.features) {
+            ShareStore.clear(getApplication())
+            _shareUnsupported.value = true
+            return false
+        }
+        if (_screen.value is Screen.MustUpdate) return false
+        showWeb()
+        return true
+    }
+
     /** A notification was tapped: leave the settings so the page it opens is seen. */
     fun showWeb() {
         if (_screen.value is Screen.Settings) _screen.value = Screen.Web
     }
 
+    companion object {
+        /** `features` of `GET /app/android`: the CRM has the page `/share` (§7.7, since 1.15). */
+        const val FEATURE_SHARE = "share"
+    }
 }
