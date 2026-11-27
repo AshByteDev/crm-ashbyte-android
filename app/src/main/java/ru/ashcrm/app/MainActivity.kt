@@ -92,6 +92,13 @@ class MainActivity : ComponentActivity(), WebHost {
     private var checking by mutableStateOf(false)
     private var pageColor by mutableStateOf<androidx.compose.ui.graphics.Color?>(null)
 
+    /** The page compresses or uploads media (§7.6); [stopped] — the activity is in the background. */
+    private val busy = ru.ashcrm.app.web.Busy()
+    private var stopped = false
+    /** onStop left the WebView running because the page was busy: it is stopped once the page is done. */
+    private var pauseSkipped = false
+    private val busyExpiry = Runnable { applyBusy() }
+
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var fileIntent: Intent? = null
     private val files = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
@@ -171,6 +178,8 @@ class MainActivity : ComponentActivity(), WebHost {
 
     override fun onStart() {
         super.onStart()
+        stopped = false
+        pauseSkipped = false
         web?.resume()
         window.decorView.postDelayed(flusher, 15_000)
         runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkWatch) }
@@ -179,7 +188,11 @@ class MainActivity : ComponentActivity(), WebHost {
     override fun onStop() {
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkWatch) }
         window.decorView.removeCallbacks(flusher)
-        web?.pause()
+        stopped = true
+        if (busy.active(android.os.SystemClock.elapsedRealtime())) {
+            web?.flush()
+            pauseSkipped = true
+        } else web?.pause()
         super.onStop()
     }
 
@@ -256,7 +269,7 @@ class MainActivity : ComponentActivity(), WebHost {
                     web = w
                     offline = false
                     offlineNote = null
-                    onDispose { if (web === w) web = null; w.view.destroy() }
+                    onDispose { if (web === w) { web = null; busy.reset(); applyBusy() }; w.view.destroy() }
                 }
                 LaunchedEffect(w) { model.navigate.collect { w.load(it) } }
                 AndroidView(factory = { w.view }, modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing))
@@ -388,6 +401,28 @@ class MainActivity : ComponentActivity(), WebHost {
 
     override fun onConnectCallback(uri: Uri) = model.onConnectCallback(uri)
     override fun onBridge(type: String) = model.onBridge(type)
+
+    override fun onBusy(on: Boolean) {
+        busy.message(on, android.os.SystemClock.elapsedRealtime())
+        applyBusy()
+    }
+
+    /** The screen stays on while busy; done (or 90 s without a repeat) in the background — the page stops, as in onStop. */
+    private fun applyBusy() {
+        val v = window.decorView
+        v.removeCallbacks(busyExpiry)
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (busy.active(now)) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            busy.expiresAt()?.let { v.postDelayed(busyExpiry, (it - now).coerceAtLeast(0) + 50) }
+            return
+        }
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (stopped && pauseSkipped) {
+            pauseSkipped = false
+            web?.pause()
+        }
+    }
     override fun onMainFrameError(failed: Boolean) {
         if (!failed) offlineNote = null
         offline = failed
@@ -417,6 +452,8 @@ class MainActivity : ComponentActivity(), WebHost {
         val u = web?.view?.url
         if (p != null && u != null && PortalAddress.sameOrigin(p, u)) model.pendingPath = PortalAddress.safePath(u.removePrefix(p))
         web = null
+        busy.reset()
+        applyBusy()
         recreate()
     }
 

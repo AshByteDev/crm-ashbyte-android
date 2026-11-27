@@ -32,6 +32,8 @@ object Notifier {
     const val CH_CALLS = "calls"
     const val CH_WORK = "work"
     const val CH_SERVICE = "service"
+    /** Since 1.11: reminders of personal notes, muted apart from «Задачи и встречи». */
+    const val CH_NOTES = "notes"
     const val CH_DELIVERY = "delivery"
     const val CH_DELIVERY_ALERT = "delivery_alert"
     /** Since 1.8: «Уточнить координаты» and any other `silent` push — no sound, no vibration (§5.1, §7.5). */
@@ -53,7 +55,7 @@ object Notifier {
     val received: SharedFlow<Payload> = _received
 
     /** Keys the CRM can mark read by «Прочитано» (§5.1); the test card and unknown ones get no button. */
-    private val readable = listOf("chat-", "task-", "event-", "channel-", "queue-", "alert-", "missedcall-", "delivery-")
+    private val readable = listOf("chat-", "task-", "event-", "channel-", "queue-", "alert-", "missedcall-", "delivery-", "note-")
 
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -76,6 +78,7 @@ object Notifier {
                 ch(CH_TEAM, "Сотрудники", NotificationManager.IMPORTANCE_HIGH, "Личные сообщения, группы, упоминания"),
                 ch(CH_CALLS, "Звонки", NotificationManager.IMPORTANCE_HIGH, "Звонит клиент, идёт разговор"),
                 ch(CH_WORK, "Задачи и встречи", NotificationManager.IMPORTANCE_DEFAULT, "Задачи, напоминания о встречах, документы на подпись"),
+                ch(CH_NOTES, "Заметки", NotificationManager.IMPORTANCE_DEFAULT, "Напоминания по личным заметкам"),
                 delivery(CH_DELIVERY, "Доставка", NotificationManager.IMPORTANCE_DEFAULT, "Заявки доставки: назначили, изменили, сообщения в чате заявки"),
                 delivery(CH_DELIVERY_ALERT, "Доставка — важное", NotificationManager.IMPORTANCE_HIGH, "Пинг диспетчера, «Не удалось», срок прошёл, срочная заявка, водитель снят"),
                 ch(CH_DELIVERY_SILENT, "Доставка — без звука", NotificationManager.IMPORTANCE_LOW, "«Уточнить координаты»: место ушло само, без звука и вибрации"),
@@ -95,6 +98,7 @@ object Notifier {
         type in setOf("mine", "queue", "alerts") -> CH_CLIENTS
         type == "call" -> CH_CALLS
         type in setOf("tasks", "calendar", "policy") -> CH_WORK
+        type == "notes" -> CH_NOTES
         type == "test" -> CH_SERVICE
         else -> CH_TEAM
     }
@@ -132,7 +136,7 @@ object Notifier {
                 when {
                     quiet -> NotificationCompat.CATEGORY_STATUS
                     p.type == "call" -> NotificationCompat.CATEGORY_CALL
-                    p.type in setOf("tasks", "calendar", "policy") -> NotificationCompat.CATEGORY_REMINDER
+                    p.type in setOf("tasks", "calendar", "policy", "notes") -> NotificationCompat.CATEGORY_REMINDER
                     p.type == "test" -> NotificationCompat.CATEGORY_STATUS
                     else -> NotificationCompat.CATEGORY_MESSAGE
                 }
@@ -140,7 +144,7 @@ object Notifier {
             .setPriority(
                 when {
                     quiet -> NotificationCompat.PRIORITY_LOW
-                    p.type in setOf("tasks", "calendar", "policy", "test") || (p.type == "delivery" && !p.alert) -> NotificationCompat.PRIORITY_DEFAULT
+                    p.type in setOf("tasks", "calendar", "policy", "notes", "test") || (p.type == "delivery" && !p.alert) -> NotificationCompat.PRIORITY_DEFAULT
                     else -> NotificationCompat.PRIORITY_HIGH
                 }
             )

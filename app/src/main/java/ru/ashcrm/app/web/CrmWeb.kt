@@ -40,6 +40,8 @@ import java.util.Base64
 interface WebHost {
     fun onConnectCallback(uri: Uri)
     fun onBridge(type: String)
+    /** Since 1.13: the page compresses or uploads media (§7.6) — keep the screen on and the page running. */
+    fun onBusy(on: Boolean) = Unit
     /**
      * An `<input type=file>`: [intent] is the picker of files; [camera] — the page takes images, so a photo from the
      * camera goes too (§7.3); [cameraOnly] — the input has `capture`, the camera opens at once.
@@ -104,6 +106,11 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
         view.pauseTimers()
     }
 
+    /** In the background while the page is busy (§7.6): only the cookies are written, the page keeps working. */
+    fun flush() {
+        CookieManager.getInstance().flush()
+    }
+
     fun resume() {
         view.resumeTimers()
         view.onResume()
@@ -134,6 +141,7 @@ class CrmWeb(private val ctx: Context, private val portal: String, private val h
                 when (val t = msg["t"]?.jsonPrimitive?.content) {
                     "blob" -> saveBlob(msg["name"]?.jsonPrimitive?.content, msg["data"]?.jsonPrimitive?.content)
                     "blob-error" -> toast("Не удалось сохранить файл")
+                    "busy" -> host.onBusy(busyOn(msg))
                     null -> Unit
                     else -> host.onBridge(t)
                 }

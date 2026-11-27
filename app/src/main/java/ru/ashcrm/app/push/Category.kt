@@ -23,7 +23,11 @@ enum class Category(
     Calendar("calendar", R.drawable.ic_cat_calendar, R.drawable.notify_calendar, 0xFF0E8F86.toInt(), Kind.Other),
     Policy("policy", R.drawable.ic_cat_policy, R.drawable.notify_policy, 0xFF0E8F86.toInt(), Kind.Other),
     Delivery("delivery", R.drawable.ic_cat_delivery, R.drawable.notify_delivery, 0xFF0E8F86.toInt(), Kind.Other),
-    Alert("alert", R.drawable.ic_cat_alert, R.drawable.notify_alert, 0xFFD93B30.toInt(), Kind.Other);
+    Alert("alert", R.drawable.ic_cat_alert, R.drawable.notify_alert, 0xFFD93B30.toInt(), Kind.Other),
+    /** Since 1.11: a reminder of a personal note. */
+    Note("note", R.drawable.ic_cat_note, R.drawable.notify_note, 0xFFD98A00.toInt(), Kind.Other),
+    /** Since 1.12: a request of a client of the cabinet of a car service («Автосервис ЛинкПарт»), a push of `queue`. */
+    Linkpart("linkpart", R.drawable.ic_cat_linkpart, R.drawable.notify_linkpart, 0xFFC2410C.toInt(), Kind.Client);
 
     enum class Kind { Call, Client, Colleague, Other }
 

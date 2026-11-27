@@ -23,10 +23,10 @@ android {
         applicationId = "ru.ashcrm.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 15
-        versionName = "0.9.0"
+        versionCode = 16
+        versionName = "0.10.0"
         // The contract of the app with the CRM (docs/ANDROID_CONTRACT.md): another major version — the update is a must.
-        buildConfigField("String", "CONTRACT", "\"1.9\"")
+        buildConfigField("String", "CONTRACT", "\"1.14\"")
         // Versions and the APK — GitHub latest (README → «Выпуск версии»); CRM may override when updates_from_crm (§2.3).
         buildConfigField("String", "UPDATE_MANIFEST", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/latest/download/android.json\"")
         buildConfigField("String", "RELEASES_PREFIX", "\"https://github.com/AshByteDev/crm-ashbyte-android/releases/download/\"")

@@ -10,6 +10,7 @@ class CategoryTest {
         val keys = listOf(
             "call_missed", "call_incoming", "queue", "client_message", "colleague_direct", "group_message", "mention",
             "conversation_assigned", "task", "calendar", "policy", "delivery", "alert",
+            "note", "linkpart",
         )
         assertEquals(keys, Category.entries.map { it.key })
         assertNull(Category.of("something_new"))
@@ -23,6 +24,9 @@ class CategoryTest {
         assertEquals(0xFF3390EC.toInt(), Category.of("queue")!!.color)
         assertEquals(0xFF8E5CD9.toInt(), Category.of("mention")!!.color)
         assertEquals(0xFFD93B30.toInt(), Category.of("alert")!!.color)
+        assertEquals(0xFFD98A00.toInt(), Category.of("note")!!.color)
+        assertEquals(0xFFC2410C.toInt(), Category.of("linkpart")!!.color)
+        assertEquals(Category.Kind.Client, Category.of("linkpart")!!.kind)
     }
 
     @Test fun `the summary counts calls, clients and colleagues, the rest as more`() {
